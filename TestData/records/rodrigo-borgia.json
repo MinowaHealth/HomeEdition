@@ -111,6 +111,22 @@
       "prescribing_doctor": null,
       "active": true,
       "notes": "Cardiovascular support"
+    },
+    {
+      "id": "d05ed05e-0001-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Albuterol 90 MCG/Actuation Inhaler",
+      "input_type": "medication",
+      "dosage": "2 puffs",
+      "default_unit": "puff",
+      "form": "inhaler",
+      "frequency": "as needed",
+      "route": "inhalation",
+      "take_with_food": false,
+      "start_date": "2025-03-12",
+      "prescribing_doctor": "Dr. Torrella",
+      "active": true,
+      "notes": "Exercise-induced wheeze — 2 puffs before exertion"
     }
   ],
   "timeframes": [

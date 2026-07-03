@@ -95,6 +95,38 @@
       "prescribing_doctor": null,
       "active": true,
       "notes": "Take with meals"
+    },
+    {
+      "id": "d05ed05e-0002-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Liquid Vitamin C + Zinc",
+      "input_type": "supplement",
+      "dosage": "1 oz",
+      "default_unit": "oz",
+      "form": "liquid",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": false,
+      "start_date": "2025-12-01",
+      "prescribing_doctor": null,
+      "active": true,
+      "notes": "Winter immune support"
+    },
+    {
+      "id": "d05ed05e-0002-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Diclofenac Sodium 1% Topical Gel",
+      "input_type": "medication",
+      "dosage": "1 application",
+      "default_unit": "application",
+      "form": "gel",
+      "frequency": "twice daily",
+      "route": "topical",
+      "take_with_food": false,
+      "start_date": "2026-02-14",
+      "prescribing_doctor": "Dr. Cardano",
+      "active": true,
+      "notes": "Knee osteoarthritis — apply to knee"
     }
   ],
   "timeframes": [

@@ -55,6 +55,22 @@
       "custom_fields": {
         "category": "mental_health"
       }
+    },
+    {
+      "id": "d05ed05e-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "name": "Sumatriptan 20 MG Nasal Spray",
+      "input_type": "medication",
+      "dosage": "1 spray",
+      "default_unit": "spray",
+      "form": "nasal spray",
+      "frequency": "as needed",
+      "route": "intranasal",
+      "take_with_food": false,
+      "start_date": "2025-10-19",
+      "prescribing_doctor": "Dr. Paracelsus",
+      "active": true,
+      "notes": "Migraine abortive — one spray at onset, max 2 per day"
     }
   ],
   "timeframes": [

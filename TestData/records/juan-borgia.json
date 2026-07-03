@@ -65,6 +65,38 @@
       "prescribing_doctor": null,
       "active": true,
       "notes": "General nutritional support"
+    },
+    {
+      "id": "d05ed05e-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "name": "Children's Omega-3 DHA",
+      "input_type": "supplement",
+      "dosage": "2 capsules",
+      "default_unit": "capsule",
+      "form": "softgel",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2026-01-05",
+      "prescribing_doctor": null,
+      "active": true,
+      "notes": "Chewable softgels"
+    },
+    {
+      "id": "d05ed05e-0004-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "name": "Children's Ibuprofen 100 MG/5 ML Oral Suspension",
+      "input_type": "medication",
+      "dosage": "5 ml",
+      "default_unit": "ml",
+      "form": "liquid",
+      "frequency": "as needed",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2025-06-20",
+      "prescribing_doctor": "Dr. Paracelsus",
+      "active": true,
+      "notes": "Fever/pain — max 4 doses per day"
     }
   ],
   "timeframes": [

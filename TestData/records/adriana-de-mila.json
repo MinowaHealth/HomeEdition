@@ -178,6 +178,38 @@
       "prescribing_doctor": "Dr. Cardano",
       "active": true,
       "notes": "With meals for absorption"
+    },
+    {
+      "id": "d05ed05e-0006-4001-8001-000000000007",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Lidocaine 4% Topical Patch",
+      "input_type": "medication",
+      "dosage": "1 patch",
+      "default_unit": "patch",
+      "form": "patch",
+      "frequency": "once daily",
+      "route": "topical",
+      "take_with_food": false,
+      "start_date": "2025-11-02",
+      "prescribing_doctor": "Dr. Cardano",
+      "active": true,
+      "notes": "Lower back pain — apply up to 12 hours, then 12 hours off"
+    },
+    {
+      "id": "d05ed05e-0006-4001-8001-000000000008",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Latanoprost 0.005% Ophthalmic Solution",
+      "input_type": "medication",
+      "dosage": "1 drop",
+      "default_unit": "drop",
+      "form": "solution",
+      "frequency": "once daily at bedtime",
+      "route": "ophthalmic",
+      "take_with_food": false,
+      "start_date": "2024-08-15",
+      "prescribing_doctor": "Dr. Cardano",
+      "active": true,
+      "notes": "Glaucoma — one drop each eye"
     }
   ],
   "timeframes": [
