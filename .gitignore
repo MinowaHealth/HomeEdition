@@ -45,3 +45,6 @@ DataModel3/CodeQueryAudit-*.md
 .codesight/
 _optivault/
 ournames.sh
+
+# Serena MCP project metadata (local)
+.serena/
