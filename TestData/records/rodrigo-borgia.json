@@ -1,0 +1,484 @@
+{
+  "meta": {
+    "tenant_id": 1,
+    "user_id": "b015b015-0001-0001-0001-b00000000001",
+    "email": "rodrigo@borgia.family",
+    "display_name": "Rodrigo Borgia",
+    "biological_sex": "male",
+    "birth_year": 1975,
+    "home_timezone": "America/New_York",
+    "schema_version": "healthv10",
+    "generated_at": "2026-03-03T12:00:00+00:00",
+    "source": "Synthea FHIR bulk export samples (smart-on-fhir/sample-bulk-fhir-datasets, Apache 2.0 / CC BY 4.0), adapted for Minowa Home Edition Borgia test characters"
+  },
+  "health_conditions": [
+    {
+      "id": "c0c0c0c0-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Essential hypertension",
+      "icd10_code": "I10",
+      "diagnosed_date": "2019-08-07",
+      "status": "managed",
+      "severity": "mild",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "Controlled on Lisinopril"
+    },
+    {
+      "id": "c0c0c0c0-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Hyperlipidemia",
+      "icd10_code": "E78.5",
+      "diagnosed_date": "2018-07-03",
+      "status": "managed",
+      "severity": "moderate",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "LDL trending down on statin"
+    },
+    {
+      "id": "c0c0c0c0-0001-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Generalized anxiety disorder",
+      "icd10_code": "F41.1",
+      "diagnosed_date": "2022-11-19",
+      "status": "active",
+      "severity": "mild",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "Manages with activity; declines medication"
+    }
+  ],
+  "health_allergies": [],
+  "health_inputs": [
+    {
+      "id": "d05ed05e-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Lisinopril 10 MG Oral Tablet",
+      "input_type": "medication",
+      "dosage": "10 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2019-08-07",
+      "prescribing_doctor": "Dr. Torrella",
+      "active": true,
+      "notes": "Take in the morning"
+    },
+    {
+      "id": "d05ed05e-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Atorvastatin 20 MG Oral Tablet",
+      "input_type": "medication",
+      "dosage": "20 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": false,
+      "start_date": "2018-07-03",
+      "prescribing_doctor": "Dr. Torrella",
+      "active": true,
+      "notes": "Take at bedtime"
+    },
+    {
+      "id": "d05ed05e-0001-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Aspirin 81 MG Oral Tablet",
+      "input_type": "medication",
+      "dosage": "81 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2018-07-03",
+      "prescribing_doctor": "Dr. Torrella",
+      "active": true,
+      "notes": "Cardioprotective dose"
+    },
+    {
+      "id": "d05ed05e-0001-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Omega-3 Fish Oil 1000 MG",
+      "input_type": "supplement",
+      "dosage": "1000 mg",
+      "default_unit": "mg",
+      "form": "capsule",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2023-09-15",
+      "prescribing_doctor": null,
+      "active": true,
+      "notes": "Cardiovascular support"
+    }
+  ],
+  "timeframes": [
+    {
+      "id": "71f3f4a1-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Morning",
+      "time_of_day": "08:00:00",
+      "sort_order": 1,
+      "is_active": true
+    }
+  ],
+  "stacks": [
+    {
+      "id": "51ac51ac-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "name": "Morning Medications",
+      "timeframe_id": "71f3f4a1-0001-4001-8001-000000000001",
+      "is_active": true,
+      "sort_order": 1
+    }
+  ],
+  "stack_inputs": [
+    {
+      "id": "511a511a-0001-4001-8001-000000000065",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "stack_id": "51ac51ac-0001-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0001-4001-8001-000000000001",
+      "sort_order": 1
+    },
+    {
+      "id": "511a511a-0001-4001-8001-000000000066",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "stack_id": "51ac51ac-0001-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0001-4001-8001-000000000002",
+      "sort_order": 2
+    },
+    {
+      "id": "511a511a-0001-4001-8001-000000000067",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "stack_id": "51ac51ac-0001-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0001-4001-8001-000000000003",
+      "sort_order": 3
+    },
+    {
+      "id": "511a511a-0001-4001-8001-000000000068",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "stack_id": "51ac51ac-0001-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0001-4001-8001-000000000004",
+      "sort_order": 4
+    }
+  ],
+  "health_blood_pressure_readings": [
+    {
+      "id": "b100b100-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "measured_at": "2026-02-01T09:00:00+00:00",
+      "systolic": 128,
+      "diastolic": 82,
+      "pulse": 68,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "measured_at": "2026-01-02T09:00:00+00:00",
+      "systolic": 132,
+      "diastolic": 85,
+      "pulse": 70,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0001-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "measured_at": "2025-11-03T09:00:00+00:00",
+      "systolic": 138,
+      "diastolic": 88,
+      "pulse": 72,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0001-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "measured_at": "2025-09-04T09:00:00+00:00",
+      "systolic": 142,
+      "diastolic": 90,
+      "pulse": 74,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0001-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "measured_at": "2025-06-06T09:00:00+00:00",
+      "systolic": 145,
+      "diastolic": 92,
+      "pulse": 76,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0001-4001-8001-000000000006",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "measured_at": "2025-03-03T09:00:00+00:00",
+      "systolic": 148,
+      "diastolic": 94,
+      "pulse": 78,
+      "position": "sitting",
+      "arm": "left"
+    }
+  ],
+  "health_blood_work": [
+    {
+      "id": "b100d100-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "test_date": "2026-01-17",
+      "test_name": "LDL Cholesterol",
+      "value": 118.0,
+      "unit": "mg/dL",
+      "reference_range": "0-100",
+      "is_abnormal": true,
+      "loinc_code": "2089-1",
+      "panel_name": "Lipid Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "test_date": "2026-01-17",
+      "test_name": "HDL Cholesterol",
+      "value": 52.0,
+      "unit": "mg/dL",
+      "reference_range": ">40",
+      "is_abnormal": false,
+      "loinc_code": "2085-9",
+      "panel_name": "Lipid Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0001-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "test_date": "2026-01-17",
+      "test_name": "Total Cholesterol",
+      "value": 198.0,
+      "unit": "mg/dL",
+      "reference_range": "<200",
+      "is_abnormal": false,
+      "loinc_code": "2093-3",
+      "panel_name": "Lipid Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0001-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "test_date": "2026-01-17",
+      "test_name": "Triglycerides",
+      "value": 140.0,
+      "unit": "mg/dL",
+      "reference_range": "<150",
+      "is_abnormal": false,
+      "loinc_code": "2571-8",
+      "panel_name": "Lipid Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0001-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "test_date": "2026-01-17",
+      "test_name": "Hemoglobin A1c",
+      "value": 5.4,
+      "unit": "%",
+      "reference_range": "<5.7",
+      "is_abnormal": false,
+      "loinc_code": "4548-4",
+      "panel_name": "HbA1c",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0001-4001-8001-000000000006",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "test_date": "2026-01-17",
+      "test_name": "Creatinine",
+      "value": 0.9,
+      "unit": "mg/dL",
+      "reference_range": "0.7-1.3",
+      "is_abnormal": false,
+      "loinc_code": "2160-0",
+      "panel_name": "CMP",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0001-4001-8001-000000000007",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "test_date": "2025-01-17",
+      "test_name": "LDL Cholesterol",
+      "value": 148.0,
+      "unit": "mg/dL",
+      "reference_range": "0-100",
+      "is_abnormal": true,
+      "loinc_code": "2089-1",
+      "panel_name": "Lipid Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    }
+  ],
+  "health_metrics": [
+    {
+      "id": "e71ca1ce-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "metric_type": "weight",
+      "value": 88,
+      "unit": "kg",
+      "recorded_at": "2026-02-01T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "metric_type": "weight",
+      "value": 89,
+      "unit": "kg",
+      "recorded_at": "2025-12-03T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0001-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "metric_type": "weight",
+      "value": 90,
+      "unit": "kg",
+      "recorded_at": "2025-09-04T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0001-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "metric_type": "weight",
+      "value": 91,
+      "unit": "kg",
+      "recorded_at": "2025-03-03T09:00:00+00:00",
+      "source": "manual"
+    }
+  ],
+  "health_family_history": [
+    {
+      "id": "fa1ffa1f-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "relationship": "father",
+      "condition_name": "Ischemic heart disease",
+      "icd10_code": "I25.10",
+      "age_at_onset": 58,
+      "vital_status": "deceased",
+      "notes": "Fatal MI at age 62"
+    },
+    {
+      "id": "fa1ffa1f-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "relationship": "mother",
+      "condition_name": "Hypertension",
+      "icd10_code": "I10",
+      "age_at_onset": 50,
+      "vital_status": "deceased",
+      "notes": "Stroke at age 75"
+    },
+    {
+      "id": "fa1ffa1f-0001-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "relationship": "brother",
+      "condition_name": "Hyperlipidemia",
+      "icd10_code": "E78.5",
+      "age_at_onset": 45,
+      "vital_status": "alive",
+      "notes": "On statin therapy"
+    }
+  ],
+  "health_social_history": [
+    {
+      "id": "50c150c1-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "category": "tobacco_use",
+      "status": "never",
+      "detail": "Non-smoker; occasional cigar at celebrations",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "category": "alcohol_use",
+      "status": "current",
+      "detail": "Red wine with dinner; 1-2 glasses nightly",
+      "quantity": "~10 drinks/week"
+    },
+    {
+      "id": "50c150c1-0001-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "category": "employment",
+      "status": "current",
+      "detail": "Diplomat; high-stress, irregular hours",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0001-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "category": "exercise",
+      "status": "current",
+      "detail": "Fencing, horseback riding; 4x/week",
+      "quantity": null
+    }
+  ],
+  "health_vaccinations": [
+    {
+      "id": "7acc7acc-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "vaccine_name": "Influenza, seasonal, injectable, preservative free",
+      "administered_date": "2025-09-24",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "vaccine_name": "SARS-COV-2 mRNA vaccine, 100 mcg/0.5 mL dose",
+      "administered_date": "2022-11-19",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0001-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "vaccine_name": "SARS-COV-2 mRNA vaccine booster",
+      "administered_date": "2024-04-02",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0001-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "vaccine_name": "Zoster vaccine, live",
+      "administered_date": "2024-10-19",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    }
+  ],
+  "health_observations": [
+    {
+      "id": "0b5e0b5e-0001-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "observed_at": "2026-02-01T10:00:00+00:00",
+      "category": "cardiovascular",
+      "content": "Patient reports occasional palpitations after intense fencing. EKG normal at last visit. Continue monitoring.",
+      "severity": 2
+    },
+    {
+      "id": "0b5e0b5e-0001-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0001-b00000000001",
+      "observed_at": "2025-11-03T10:00:00+00:00",
+      "category": "general",
+      "content": "Annual wellness: BMI 28.5. Weight stable. Advised on sodium reduction.",
+      "severity": 1
+    }
+  ]
+}

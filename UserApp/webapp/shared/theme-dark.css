@@ -1,0 +1,146 @@
+/* ============================================================
+   Minowa.ai — Dark Theme (Shared)
+   2026-02-28
+   Apply with <body class="theme-dark">.
+   Works for both User and Provider apps — accent color comes
+   from the app-specific theme file loaded after this one.
+   ============================================================ */
+
+.theme-dark {
+    --color-bg: #1a1a2e;
+    --color-text: #e2e8f0;
+    --color-text-inverse: #ffffff;
+    --color-card: #16213e;
+    --color-border: #2a2a4a;
+    --color-header: #0f3460;
+    --color-header-text: #e2e8f0;
+    --color-muted: #a0aec0;
+    --color-hover: #1e2a4a;
+    --color-table-header: #1e2a4a;
+
+    /* Status */
+    --color-success: #68d391;
+    --color-success-bg: #1a332a;
+    --color-success-border: #2f6846;
+    --color-error: #fc8181;
+    --color-error-bg: #3b1a1a;
+    --color-error-border: #6b2a2a;
+    --color-warning: #f6e05e;
+    --color-warning-bg: #3b3516;
+    --color-warning-border: #6b5e1a;
+    --color-info-bg: #1a2e40;
+    --color-info-border: #2a4a6b;
+
+    /* Sidebar */
+    --color-sidebar-bg: #16213e;
+    --color-sidebar-active: #1a2e4a;
+
+    /* Badges */
+    --color-badge-active-bg: #1a332a;
+    --color-badge-active-text: #68d391;
+    --color-badge-inactive-bg: #2d3748;
+    --color-badge-inactive-text: #a0aec0;
+    --color-badge-warning-bg: #3b3516;
+    --color-badge-warning-text: #f6e05e;
+    --color-badge-info-bg: #1a2e40;
+    --color-badge-info-text: #63b3ed;
+
+    /* Domain */
+    --color-med-active: #48bb78;
+    --color-med-inactive: #4a5568;
+    --color-obs-border: #4299e1;
+
+    /* Shadows — darker in dark mode */
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+
+    /* Activity Bar — near-black */
+    --color-actbar-bg: #0d1117;
+    --color-actbar-icon: rgba(160, 174, 192, 0.6);
+    --color-actbar-icon-hover: rgba(226, 232, 240, 0.85);
+    --color-actbar-hover: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- Dark theme element overrides ---- */
+
+/* Form inputs need explicit dark backgrounds */
+.theme-dark .form-group input,
+.theme-dark .form-group select,
+.theme-dark .form-group textarea,
+.theme-dark .form-row input,
+.theme-dark .form-row select,
+.theme-dark .form-row textarea {
+    background: #1a1a2e;
+    border-color: #2a2a4a;
+    color: #e2e8f0;
+}
+
+.theme-dark .form-group input:focus,
+.theme-dark .form-group select:focus,
+.theme-dark .form-group textarea:focus,
+.theme-dark .form-row input:focus,
+.theme-dark .form-row select:focus,
+.theme-dark .form-row textarea:focus {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.theme-dark .form-group input::placeholder,
+.theme-dark .form-group textarea::placeholder,
+.theme-dark .form-row input::placeholder,
+.theme-dark .form-row textarea::placeholder {
+    color: #4a5568;
+}
+
+/* Table alternating rows */
+.theme-dark tr:nth-child(even) {
+    background: #1a1a2e;
+}
+
+.theme-dark tr:hover {
+    background: #1e2a4a;
+}
+
+/* Card headings */
+.theme-dark .card h2,
+.theme-dark .card h3 {
+    color: #e2e8f0;
+}
+
+/* SOAP headers */
+.theme-dark .soap-section .soap-header {
+    background: #1e2a4a;
+    color: #e2e8f0;
+}
+
+/* Sidebar nav hover */
+.theme-dark .sb-nav-item:hover,
+.theme-dark .sidebar .nav-item:hover {
+    background: #2a2a4a;
+}
+
+/* Adherence bar track */
+.theme-dark .adherence-bar {
+    background: #2a2a4a;
+}
+
+/* Lab values */
+.theme-dark .lab-abnormal-high { color: #fc8181; }
+.theme-dark .lab-abnormal-low  { color: #63b3ed; }
+
+/* Settings borders */
+.theme-dark .settings-section {
+    border-bottom-color: #2a2a4a;
+}
+
+/* Links */
+.theme-dark a {
+    color: var(--color-accent);
+}
+
+/* Side bar search in dark mode */
+.theme-dark .side-bar-search input {
+    background: #1a1a2e;
+    border-color: #2a2a4a;
+    color: #e2e8f0;
+}

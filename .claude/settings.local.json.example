@@ -1,0 +1,47 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:localhost)",
+      "mcp__serena__activate_project",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_symbol",
+      "mcp__serena__find_referencing_symbols",
+      "mcp__serena__search_for_pattern",
+      "mcp__serena__find_file",
+      "mcp__serena__list_dir",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__initial_instructions",
+      "mcp__serena__onboarding",
+      "mcp__postgres-dev__list_schemas",
+      "mcp__postgres-dev__list_objects",
+      "mcp__postgres-dev__get_object_details",
+      "mcp__postgres-dev__explain_query",
+      "mcp__postgres-dev__get_top_queries",
+      "mcp__postgres-dev__analyze_workload_indexes",
+      "mcp__postgres-dev__analyze_query_indexes",
+      "mcp__postgres-dev__analyze_db_health",
+      "mcp__ide__getDiagnostics",
+      "Skill(second-opinion)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Skill(schedule)",
+      "Skill(schedule:*)",
+      "Skill(run)"
+    ]
+  },
+  "mcpServers": {
+    "postgres-dev": {
+      "command": "uvx",
+      "args": [
+        "postgres-mcp@0.3.0",
+        "--access-mode=unrestricted"
+      ],
+      "env": {
+        "DATABASE_URI": "postgresql://postgres:REPLACE_WITH_DB_PASSWORD@127.0.0.1:5432/healthv10"
+      }
+    }
+  }
+}

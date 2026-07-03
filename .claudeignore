@@ -1,0 +1,62 @@
+# .claudeignore - Prevents Claude Code from scanning specific files/directories
+
+# -------------------------
+# misc
+# -------------------------
+.serena/
+
+# -------------------------
+# Secrets & Credentials (CRITICAL)
+# -------------------------
+.env
+.env.*
+*.pem
+*.key
+secrets/
+credentials.json
+
+# -------------------------
+# Python & Flask Specifics
+# -------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+instance/           # Flask instance folder (often contains local configs/DBs)
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.egg-info/
+build/
+dist/
+
+# -------------------------
+# Virtual Environments
+# -------------------------
+venv/
+.venv/
+env/
+pip-wheel-metadata/
+
+# -------------------------
+# Database & Infrastructure
+# -------------------------
+*.sqlite3
+*.db
+pgdata/             # Local PostgreSQL/Timescale data volumes
+vector_data/
+logs/
+*.log
+
+# -------------------------
+# Frontend / UI Dependencies
+# -------------------------
+node_modules/       # Token-heavy, block if serving GraphQL UIs or frontend assets
+package-lock.json
+
+# -------------------------
+# IDE & OS Files
+# -------------------------
+.vscode/
+.idea/
+.DS_Store

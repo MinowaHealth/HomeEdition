@@ -1,0 +1,68 @@
+{
+  "payload_version": 2,
+  "activity_summaries": [
+    {
+      "date": "2026-04-03",
+      "active_energy_burned": 520,
+      "active_energy_burned_goal": 550,
+      "exercise_time": 42,
+      "exercise_time_goal": 30,
+      "stand_hours": 12,
+      "stand_hours_goal": 12
+    },
+    {
+      "date": "2026-04-04",
+      "active_energy_burned": 480,
+      "active_energy_burned_goal": 550,
+      "exercise_time": 35,
+      "exercise_time_goal": 30,
+      "stand_hours": 11,
+      "stand_hours_goal": 12
+    },
+    {
+      "date": "2026-04-05",
+      "active_energy_burned": 610,
+      "active_energy_burned_goal": 550,
+      "exercise_time": 55,
+      "exercise_time_goal": 30,
+      "stand_hours": 13,
+      "stand_hours_goal": 12
+    },
+    {
+      "date": "2026-04-06",
+      "active_energy_burned": 290,
+      "active_energy_burned_goal": 550,
+      "exercise_time": 20,
+      "exercise_time_goal": 30,
+      "stand_hours": 9,
+      "stand_hours_goal": 12
+    },
+    {
+      "date": "2026-04-07",
+      "active_energy_burned": 440,
+      "active_energy_burned_goal": 550,
+      "exercise_time": 33,
+      "exercise_time_goal": 30,
+      "stand_hours": 11,
+      "stand_hours_goal": 12
+    },
+    {
+      "date": "2026-04-08",
+      "active_energy_burned": 505,
+      "active_energy_burned_goal": 550,
+      "exercise_time": 41,
+      "exercise_time_goal": 30,
+      "stand_hours": 12,
+      "stand_hours_goal": 12
+    },
+    {
+      "date": "2026-04-09",
+      "active_energy_burned": 590,
+      "active_energy_burned_goal": 550,
+      "exercise_time": 48,
+      "exercise_time_goal": 30,
+      "stand_hours": 12,
+      "stand_hours_goal": 12
+    }
+  ]
+}

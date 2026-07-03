@@ -1,0 +1,35 @@
+# DesignMCP Docker Compose
+#
+# Optional design-time tooling — NOT part of the base appliance stack. It
+# joins the canonical stack's network (`minowa`, created by
+# HowToDeploy/docker-compose.local.yml) so it can reach the webapp by
+# container name (http://hb-local-webapp:80).
+#
+# Prerequisite: the canonical appliance stack must be up first.
+
+services:
+  designmcp:
+    build: .
+    container_name: designmcp
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${MCP_PORT:-33282}:${MCP_PORT:-33282}"
+    environment:
+      USERAPP_BASE_URL: ${USERAPP_BASE_URL:-http://hb-local-webapp:80}
+      USERAPP_API_KEY: ${USERAPP_API_KEY}
+      MCP_PORT: ${MCP_PORT:-33282}
+      MCP_HOST: ${MCP_HOST:-0.0.0.0}
+      UVICORN_LOG_LEVEL: ${UVICORN_LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${MCP_PORT:-33282}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - minowa
+
+networks:
+  minowa:
+    external: true
+    name: ${DOCKER_NETWORK:-minowa}

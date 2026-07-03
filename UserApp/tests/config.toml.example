@@ -1,0 +1,24 @@
+# Test Configuration
+# Copy this file to config.toml and edit credentials before running tests:
+#   cp config.toml.example config.toml
+
+[server]
+base_url = "http://localhost:80"
+
+[users]
+# Default test user
+default = { email = "test@test.com", password = "CHANGEME" }
+
+# Owner users (have delegatable data)
+owner1 = { email = "owner1@test.local", password = "CHANGEME" }
+owner2 = { email = "owner2@test.local", password = "CHANGEME" }
+owner3 = { email = "owner3@test.local", password = "CHANGEME" }
+
+# Provider users (access delegated data)
+provider1 = { email = "provider1@test.local", password = "CHANGEME" }
+provider2 = { email = "provider2@test.local", password = "CHANGEME" }
+
+[providers]
+# Additional metadata for provider creation (if needed)
+provider1 = { display_name = "Dr. Provider One", credentials = "MD", specialty = "Family Medicine" }
+provider2 = { display_name = "Dr. Provider Two", credentials = "NP", specialty = "Internal Medicine" }

@@ -1,0 +1,23 @@
+{
+  "payload_version": 2,
+  "sources": [
+    {
+      "source_name": "Apple Watch",
+      "source_bundle_id": "com.apple.health",
+      "source_version": "18.3",
+      "device_name": "My Apple Watch",
+      "device_model": "Watch6,5"
+    }
+  ],
+  "samples": [
+    {
+      "type_identifier": "HKQuantityTypeIdentifierRestingHeartRate",
+      "value": 58,
+      "unit": "count/min",
+      "start": "2026-04-09T00:00:00Z",
+      "end": "2026-04-09T23:59:59Z",
+      "source_ref": 0,
+      "metadata": {"HKMetadataKeyAlgorithmVersion": "3"}
+    }
+  ]
+}

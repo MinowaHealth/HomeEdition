@@ -1,0 +1,1291 @@
+/* ============================================================
+   Minowa.ai — Shared Design Tokens
+   2026-02-28
+   Single source of truth for colors, spacing, typography, radii.
+   Both User and Provider apps import this file.
+   App-specific themes override --color-accent and friends.
+   ============================================================ */
+
+:root {
+    /* ---- Semantic Colors (light theme defaults) ---- */
+    --color-bg: #f5f5f5;
+    --color-text: #333333;
+    --color-text-inverse: #ffffff;
+    --color-accent: #2b6cb0;
+    --color-accent-hover: #2c5282;
+    --color-accent-subtle: rgba(43, 108, 176, 0.15);
+    --color-card: #ffffff;
+    --color-border: #e2e8f0;
+    --color-header: #1a365d;
+    --color-header-text: #ffffff;
+    --color-muted: #718096;
+    --color-hover: #f7fafc;
+
+    /* Status */
+    --color-success: #276749;
+    --color-success-bg: #c6f6d5;
+    --color-success-border: #68d391;
+    --color-error: #c53030;
+    --color-error-bg: #fed7d7;
+    --color-error-border: #fc8181;
+    --color-warning: #975a16;
+    --color-warning-bg: #fefcbf;
+    --color-warning-border: #f6e05e;
+    --color-info-bg: #bee3f8;
+    --color-info-border: #63b3ed;
+
+    /* Tables */
+    --color-table-header: #f7fafc;
+
+    /* Sidebar */
+    --color-sidebar-bg: #f7fafc;
+    --color-sidebar-active: #ebf4ff;
+
+    /* Badges */
+    --color-badge-active-bg: #c6f6d5;
+    --color-badge-active-text: #276749;
+    --color-badge-inactive-bg: #e2e8f0;
+    --color-badge-inactive-text: #4a5568;
+    --color-badge-warning-bg: #fefcbf;
+    --color-badge-warning-text: #975a16;
+    --color-badge-info-bg: #bee3f8;
+    --color-badge-info-text: #2b6cb0;
+
+    /* Domain-specific */
+    --color-med-active: #48bb78;
+    --color-med-inactive: #a0aec0;
+    --color-obs-border: #4299e1;
+
+    /* Workbench — Activity Bar */
+    --color-actbar-bg: var(--color-header);
+    --color-actbar-icon: rgba(255, 255, 255, 0.5);
+    --color-actbar-icon-hover: rgba(255, 255, 255, 0.85);
+    --color-actbar-icon-active: #ffffff;
+    --color-actbar-hover: rgba(255, 255, 255, 0.1);
+
+    /* ---- Spacing ---- */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+
+    /* ---- Typography ---- */
+    --font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-base: 1rem;
+    --font-size-lg: 1.25rem;
+    --font-size-xl: 1.5rem;
+    --font-size-2xl: 2rem;
+
+    /* ---- Layout ---- */
+    --max-width: 1400px;
+    --sidebar-width: 280px;
+    --border-radius: 4px;
+    --border-radius-lg: 8px;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+/* ============================================================
+   Minowa.ai — User App Accent (Purple)
+   2026-02-28
+   Loaded AFTER tokens.css + theme-dark.css (if dark).
+   Only overrides --color-accent and activity bar palette.
+   ============================================================ */
+
+:root {
+    --color-accent: #667eea;
+    --color-accent-hover: #5568d3;
+    --color-accent-subtle: rgba(102, 126, 234, 0.15);
+
+    /* Activity bar — purple */
+    --color-actbar-bg: #4a3f8a;
+}
+
+/* Dark mode overrides for purple accent */
+.theme-dark {
+    --color-accent: #667eea;
+    --color-accent-hover: #7b93ff;
+    --color-accent-subtle: rgba(102, 126, 234, 0.2);
+    --color-actbar-bg: #2d2654;
+    --color-actbar-icon-active: #ffffff;
+}
+/* ============================================================
+   Minowa.ai — Workbench Layout (Shared)
+   2026-02-28
+   VS Code-style 3-panel grid: Activity Bar | Side Bar | Editor Area
+   Requires tokens.css loaded first.
+   ============================================================ */
+
+/* ---- Reset ---- */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+html {
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+body {
+    font-family: var(--font-family);
+    background: var(--color-bg);
+    color: var(--color-text);
+    min-height: 100vh;
+}
+
+/* ---- Activity Bar Size Tiers ---- */
+/* Set via data-actbar-size attribute on <body>, stored in localStorage */
+body                          { --actbar-col: 96px;  --actbar-btn: 72px;  --actbar-svg: 36px; }
+body[data-actbar-size="sm"]   { --actbar-col: 48px;  --actbar-btn: 40px;  --actbar-svg: 20px; }
+body[data-actbar-size="md"]   { --actbar-col: 72px;  --actbar-btn: 56px;  --actbar-svg: 28px; }
+body[data-actbar-size="lg"]   { --actbar-col: 96px;  --actbar-btn: 72px;  --actbar-svg: 36px; }
+body[data-actbar-size="xl"]   { --actbar-col: 144px; --actbar-btn: 108px; --actbar-svg: 54px; }
+
+/* ---- Grid Shell ---- */
+.workbench {
+    display: grid;
+    grid-template-columns: var(--actbar-col) var(--sidebar-width, 280px) 1fr;
+    grid-template-rows: 1fr auto;
+    grid-template-areas:
+        "actbar sidebar editor"
+        "actbar statusbar statusbar";
+    height: 100vh;
+    overflow: hidden;
+}
+
+.workbench.sidebar-collapsed {
+    grid-template-columns: var(--actbar-col) 0px 1fr;
+}
+
+/* ---- Activity Bar ---- */
+.activity-bar {
+    grid-area: actbar;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--color-actbar-bg);
+    padding-top: var(--space-sm);
+    gap: 2px;
+    z-index: 10;
+    overflow: hidden;
+}
+
+.activity-bar .act-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--actbar-btn);
+    height: var(--actbar-btn);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    color: var(--color-actbar-icon);
+    font-size: 1.75rem;
+    border: none;
+    background: none;
+    transition: color 0.15s, background-color 0.15s;
+    position: relative;
+    padding: 0;
+    box-shadow: none;
+    transform: none;
+}
+
+.activity-bar .act-icon svg {
+    width: var(--actbar-svg);
+    height: var(--actbar-svg);
+}
+
+.activity-bar .act-icon:hover {
+    color: var(--color-actbar-icon-hover);
+    background: var(--color-actbar-hover);
+    transform: none;
+    box-shadow: none;
+}
+
+.activity-bar .act-icon.active {
+    color: var(--color-actbar-icon-active);
+}
+
+.activity-bar .act-icon.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 25%;
+    height: 50%;
+    width: 2px;
+    background: var(--color-actbar-icon-active);
+    border-radius: 1px;
+}
+
+.activity-bar .act-icon.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.activity-bar .act-icon.disabled:hover {
+    color: var(--color-actbar-icon);
+    background: none;
+}
+
+.activity-bar .act-spacer {
+    flex: 1;
+}
+
+/* ---- Side Bar ---- */
+.side-bar {
+    grid-area: sidebar;
+    background: var(--color-sidebar-bg);
+    border-right: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.15s ease;
+}
+
+.workbench.sidebar-collapsed .side-bar {
+    border-right: none;
+    overflow: hidden;
+}
+
+.side-bar-header {
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+    min-height: 36px;
+}
+
+.side-bar-header .collapse-btn {
+    background: none;
+    border: none;
+    color: var(--color-muted);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    padding: 2px 4px;
+    border-radius: var(--border-radius);
+    transform: none;
+    box-shadow: none;
+}
+
+.side-bar-header .collapse-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+    transform: none;
+    box-shadow: none;
+}
+
+.side-bar-search {
+    padding: 0 var(--space-md) var(--space-sm);
+    flex-shrink: 0;
+}
+
+.side-bar-search input {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: var(--font-size-sm);
+    font-family: var(--font-family);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-card);
+    color: var(--color-text);
+}
+
+.side-bar-search input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+}
+
+.side-bar-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 var(--space-sm);
+}
+
+.side-bar-view {
+    display: none;
+}
+
+.side-bar-view.active {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Side bar navigation items */
+.sb-nav-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 8px var(--space-sm);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    transition: background-color 0.1s;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-family);
+    transform: none;
+    box-shadow: none;
+}
+
+.sb-nav-item:hover {
+    background: var(--color-hover);
+    transform: none;
+    box-shadow: none;
+}
+
+.sb-nav-item.active {
+    background: var(--color-sidebar-active);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+/* Side bar list items (patients, notes, etc.) */
+.sb-list-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 6px var(--space-sm);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    transition: background-color 0.1s;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-family);
+}
+
+.sb-list-item:hover {
+    background: var(--color-hover);
+}
+
+.sb-list-item.active {
+    background: var(--color-sidebar-active);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+.sb-list-item .sb-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---- Editor Area ---- */
+.editor-area {
+    grid-area: editor;
+    overflow-y: auto;
+    background: var(--color-bg);
+    padding: var(--space-xl);
+}
+
+/* ---- Status Bar ---- */
+.status-bar {
+    grid-area: statusbar;
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: 2px var(--space-md);
+    background: var(--color-accent);
+    color: var(--color-text-inverse);
+    font-size: var(--font-size-xs);
+    min-height: 22px;
+}
+
+.status-bar .status-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.9;
+}
+
+.status-bar .status-spacer {
+    flex: 1;
+}
+
+/* ---- Responsive: collapse sidebar on mobile ---- */
+@media (max-width: 768px) {
+    .workbench {
+        grid-template-columns: var(--actbar-col) 0px 1fr;
+    }
+
+    .side-bar {
+        display: none;
+    }
+
+    .editor-area {
+        padding: var(--space-md);
+    }
+}
+/* ============================================================
+   Minowa.ai — Shared Components
+   2026-02-28
+   Cards, buttons, forms, tables, badges, tabs, alerts, utilities.
+   Requires tokens.css loaded first.
+   ============================================================ */
+
+/* ---- Typography ---- */
+h1, h2, h3, h4, h5, h6 {
+    line-height: 1.3;
+}
+
+a {
+    color: var(--color-accent);
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+.text-mono  { font-family: var(--font-mono); }
+.text-muted { color: var(--color-muted); }
+.text-sm    { font-size: var(--font-size-sm); }
+.text-xs    { font-size: var(--font-size-xs); }
+
+/* ---- Cards ---- */
+.card {
+    background: var(--color-card);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+}
+
+.card h2 {
+    margin-top: 0;
+    border-bottom: 2px solid var(--color-border);
+    padding-bottom: var(--space-sm);
+}
+
+.card h3 {
+    margin-top: 0;
+}
+
+/* ---- Buttons ---- */
+.btn {
+    padding: 0.75rem 1.5rem;
+    font-size: var(--font-size-base);
+    font-family: var(--font-family);
+    border: none;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    transition: background-color 0.15s, opacity 0.15s;
+    line-height: 1.5;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: var(--color-accent);
+    color: var(--color-text-inverse);
+}
+.btn-primary:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+}
+
+.btn-secondary {
+    background: var(--color-muted);
+    color: var(--color-text-inverse);
+}
+.btn-secondary:hover:not(:disabled) {
+    background: #4a5568;
+}
+
+.btn-danger {
+    background: var(--color-error);
+    color: var(--color-text-inverse);
+}
+.btn-danger:hover:not(:disabled) {
+    background: #9b2c2c;
+}
+
+.btn-sm {
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--font-size-sm);
+}
+
+/* Bare button reset — for inline actions (edit, delete) inside cards/tables */
+button {
+    font-family: var(--font-family);
+    cursor: pointer;
+}
+
+/* ---- Forms ---- */
+.form-group {
+    margin-bottom: var(--space-md);
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: var(--space-sm);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: var(--font-size-base);
+    font-family: var(--font-family);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-card);
+    color: var(--color-text);
+    transition: border-color 0.15s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+    color: var(--color-muted);
+}
+
+.form-group textarea {
+    resize: vertical;
+}
+
+/* Flexbox form row (inline fields) */
+.form-row {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.form-row input,
+.form-row select,
+.form-row textarea {
+    flex: 1;
+    min-width: 200px;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    font-size: var(--font-size-base);
+    font-family: var(--font-family);
+    background: var(--color-card);
+    color: var(--color-text);
+    transition: border-color 0.15s;
+}
+
+.form-row input:focus,
+.form-row select:focus,
+.form-row textarea:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.form-row label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+    font-size: var(--font-size-base);
+    color: var(--color-muted);
+}
+
+.form-row input[type="checkbox"],
+.form-row input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    flex: none;
+    cursor: pointer;
+}
+
+.form-row textarea {
+    width: 100%;
+    resize: vertical;
+}
+
+.form-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: var(--space-lg);
+}
+
+/* Form card wrapper */
+.form {
+    background: var(--color-card);
+    padding: var(--space-lg);
+    border-radius: var(--border-radius-lg);
+    margin-bottom: var(--space-lg);
+    border: 1px solid var(--color-border);
+}
+
+/* ---- Tables ---- */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    text-align: left;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+th {
+    background: var(--color-table-header);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+tr:hover {
+    background: var(--color-hover);
+}
+
+/* ---- Alerts ---- */
+.alert {
+    padding: var(--space-md);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--space-md);
+    font-size: var(--font-size-sm);
+}
+
+.alert-error {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border: 1px solid var(--color-error-border);
+}
+
+.alert-success {
+    background: var(--color-success-bg);
+    color: var(--color-success);
+    border: 1px solid var(--color-success-border);
+}
+
+.alert-info {
+    background: var(--color-info-bg);
+    color: var(--color-accent);
+    border: 1px solid var(--color-info-border);
+}
+
+.alert-warning {
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+    border: 1px solid var(--color-warning-border);
+}
+
+/* ---- Badges ---- */
+.badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.badge-active {
+    background: var(--color-badge-active-bg);
+    color: var(--color-badge-active-text);
+}
+
+.badge-inactive {
+    background: var(--color-badge-inactive-bg);
+    color: var(--color-badge-inactive-text);
+}
+
+.badge-warning {
+    background: var(--color-badge-warning-bg);
+    color: var(--color-badge-warning-text);
+}
+
+.badge-info {
+    background: var(--color-badge-info-bg);
+    color: var(--color-badge-info-text);
+}
+
+/* ---- Tabs ---- */
+.tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--color-border);
+    margin-bottom: var(--space-lg);
+    overflow-x: auto;
+}
+
+.tab {
+    padding: 0.75rem 1.5rem;
+    cursor: pointer;
+    border: none;
+    background: none;
+    font-size: var(--font-size-base);
+    font-family: var(--font-family);
+    color: var(--color-muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+    color: var(--color-accent);
+}
+
+.tab.active {
+    color: var(--color-accent);
+    border-bottom-color: var(--color-accent);
+    font-weight: 600;
+}
+
+/* ---- Stats Grid ---- */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.stat-box {
+    background: var(--color-table-header);
+    padding: var(--space-md);
+    border-radius: var(--border-radius);
+    text-align: center;
+}
+
+.stat-box .value {
+    font-size: var(--font-size-2xl);
+    font-weight: 700;
+    color: var(--color-accent);
+}
+
+.stat-box .label {
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+}
+
+/* ---- Item Cards (observations, medications, etc.) ---- */
+.item-card {
+    padding: var(--space-md);
+    border-left: 3px solid var(--color-accent);
+    background: var(--color-table-header);
+    margin-bottom: 0.75rem;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    transition: background-color 0.15s;
+}
+
+.item-card:hover {
+    background: var(--color-hover);
+}
+
+.item-card .meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+    margin-bottom: var(--space-sm);
+}
+
+.item-card .content {
+    line-height: 1.5;
+}
+
+.item-card .actions {
+    margin-top: var(--space-sm);
+    display: flex;
+    gap: var(--space-sm);
+}
+
+/* Observation cards (User app backward compat) */
+.observation-card {
+    padding: var(--space-md);
+    border-left: 3px solid var(--color-obs-border);
+    background: var(--color-table-header);
+    margin-bottom: 0.75rem;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    transition: background-color 0.15s;
+}
+
+.observation-card:hover {
+    background: var(--color-hover);
+}
+
+.observation-time {
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+    margin-bottom: var(--space-sm);
+    font-weight: 500;
+}
+
+.observation-text {
+    line-height: 1.6;
+}
+
+.observation-actions {
+    margin-top: var(--space-sm);
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.observations-list {
+    display: grid;
+    gap: var(--space-md);
+}
+
+/* Medication items */
+.med-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem;
+    border-left: 3px solid var(--color-med-active);
+    background: var(--color-table-header);
+    margin-bottom: var(--space-sm);
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+}
+
+.med-item.inactive {
+    border-left-color: var(--color-med-inactive);
+    opacity: 0.7;
+}
+
+.med-name  { font-weight: 600; }
+.med-details { color: var(--color-muted); font-size: var(--font-size-sm); }
+
+/* Observation items (Provider app) */
+.obs-item {
+    padding: var(--space-md);
+    border-left: 3px solid var(--color-obs-border);
+    background: var(--color-table-header);
+    margin-bottom: 0.75rem;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+}
+
+.obs-item .meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+    margin-bottom: var(--space-sm);
+}
+
+.obs-item .content {
+    line-height: 1.5;
+}
+
+/* ---- SOAP Note Sections ---- */
+.soap-section {
+    margin-bottom: var(--space-lg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+}
+
+.soap-section .soap-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-table-header);
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.soap-section .soap-header .soap-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--border-radius);
+    background: var(--color-accent);
+    color: var(--color-text-inverse);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+}
+
+.soap-section .soap-content {
+    padding: var(--space-md);
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+/* ---- Adherence Bar ---- */
+.adherence-bar {
+    height: 8px;
+    background: var(--color-border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: var(--space-xs);
+}
+
+.adherence-bar .fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+.adherence-bar .fill.high   { background: #48bb78; }
+.adherence-bar .fill.medium { background: #ecc94b; }
+.adherence-bar .fill.low    { background: #f56565; }
+
+/* ---- Patient Card ---- */
+.patient-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    margin-bottom: 0.75rem;
+    transition: border-color 0.15s, background-color 0.15s;
+}
+
+.patient-card:hover {
+    border-color: var(--color-accent);
+    background: var(--color-hover);
+}
+
+.patient-info h3 { margin: 0 0 var(--space-xs) 0; }
+.patient-info p  { margin: 0; color: var(--color-muted); font-size: var(--font-size-sm); }
+
+/* ---- Settings ---- */
+.settings-section {
+    margin-bottom: var(--space-xl);
+    padding-bottom: var(--space-lg);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.settings-section:last-child {
+    border-bottom: none;
+}
+
+/* ---- Loading / Empty States ---- */
+.loading {
+    text-align: center;
+    padding: var(--space-xl);
+    color: var(--color-muted);
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: var(--color-muted);
+}
+
+.empty-state p {
+    margin: var(--space-sm) 0;
+}
+
+/* ---- Info banner (timezone, etc.) ---- */
+.info-banner {
+    background: var(--color-info-bg);
+    padding: 10px 15px;
+    border-radius: var(--border-radius);
+    margin-bottom: 15px;
+    color: var(--color-accent);
+    font-size: var(--font-size-sm);
+    border-left: 4px solid var(--color-info-border);
+}
+
+/* backward compat alias */
+.timezone-info {
+    background: var(--color-info-bg);
+    padding: 10px 15px;
+    border-radius: var(--border-radius);
+    margin-bottom: 15px;
+    color: var(--color-accent);
+    font-size: var(--font-size-sm);
+    border-left: 4px solid var(--color-info-border);
+}
+
+/* ---- Quantity control (User app) ---- */
+.quantity-control {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.quantity-control button {
+    width: 35px;
+    height: 35px;
+    padding: 0;
+    font-size: 1.2rem;
+    font-weight: bold;
+    background: var(--color-accent);
+    color: var(--color-text-inverse);
+    border: none;
+    border-radius: var(--border-radius);
+}
+
+.quantity-control button:hover {
+    background: var(--color-accent-hover);
+}
+
+.quantity-control input {
+    width: 80px;
+    text-align: center;
+}
+
+/* ---- Login Container ---- */
+.login-container {
+    max-width: 400px;
+    margin: 100px auto;
+    padding: 0 var(--space-md);
+}
+
+/* ---- Fade-in animation ---- */
+.manager {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- View toggling (SPA) ---- */
+.view         { display: none; }
+.view.active  { display: block; }
+
+/* ---- Lab Values ---- */
+.lab-abnormal-high { color: var(--color-error); font-weight: 700; }
+.lab-abnormal-low  { color: var(--color-accent); font-weight: 700; }
+
+/* ---- Utility ---- */
+.mt-0 { margin-top: 0; }
+.mb-0 { margin-bottom: 0; }
+.mt-1 { margin-top: var(--space-md); }
+.mb-1 { margin-bottom: var(--space-md); }
+.mt-2 { margin-top: var(--space-lg); }
+.mb-2 { margin-bottom: var(--space-lg); }
+
+.flex         { display: flex; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.gap-sm       { gap: var(--space-sm); }
+.gap-md       { gap: var(--space-md); }
+
+/* ---- Responsive ---- */
+@media (max-width: 768px) {
+    .form-row {
+        flex-direction: column;
+    }
+
+    .form-row input,
+    .form-row select {
+        width: 100%;
+        min-width: auto;
+    }
+
+    table {
+        font-size: var(--font-size-sm);
+    }
+
+    th, td {
+        padding: 10px;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        font-size: 16px; /* prevent iOS zoom */
+    }
+
+    .patient-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-sm);
+    }
+
+    .patient-card .btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .med-item {
+        flex-direction: column;
+        gap: var(--space-xs);
+    }
+
+    .login-container {
+        margin-top: 3rem;
+    }
+}
+/* ============================================================
+   Minowa.ai — Dark Theme (Shared)
+   2026-02-28
+   Apply with <body class="theme-dark">.
+   Works for both User and Provider apps — accent color comes
+   from the app-specific theme file loaded after this one.
+   ============================================================ */
+
+.theme-dark {
+    --color-bg: #1a1a2e;
+    --color-text: #e2e8f0;
+    --color-text-inverse: #ffffff;
+    --color-card: #16213e;
+    --color-border: #2a2a4a;
+    --color-header: #0f3460;
+    --color-header-text: #e2e8f0;
+    --color-muted: #a0aec0;
+    --color-hover: #1e2a4a;
+    --color-table-header: #1e2a4a;
+
+    /* Status */
+    --color-success: #68d391;
+    --color-success-bg: #1a332a;
+    --color-success-border: #2f6846;
+    --color-error: #fc8181;
+    --color-error-bg: #3b1a1a;
+    --color-error-border: #6b2a2a;
+    --color-warning: #f6e05e;
+    --color-warning-bg: #3b3516;
+    --color-warning-border: #6b5e1a;
+    --color-info-bg: #1a2e40;
+    --color-info-border: #2a4a6b;
+
+    /* Sidebar */
+    --color-sidebar-bg: #16213e;
+    --color-sidebar-active: #1a2e4a;
+
+    /* Badges */
+    --color-badge-active-bg: #1a332a;
+    --color-badge-active-text: #68d391;
+    --color-badge-inactive-bg: #2d3748;
+    --color-badge-inactive-text: #a0aec0;
+    --color-badge-warning-bg: #3b3516;
+    --color-badge-warning-text: #f6e05e;
+    --color-badge-info-bg: #1a2e40;
+    --color-badge-info-text: #63b3ed;
+
+    /* Domain */
+    --color-med-active: #48bb78;
+    --color-med-inactive: #4a5568;
+    --color-obs-border: #4299e1;
+
+    /* Shadows — darker in dark mode */
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+
+    /* Activity Bar — near-black */
+    --color-actbar-bg: #0d1117;
+    --color-actbar-icon: rgba(160, 174, 192, 0.6);
+    --color-actbar-icon-hover: rgba(226, 232, 240, 0.85);
+    --color-actbar-hover: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- Dark theme element overrides ---- */
+
+/* Form inputs need explicit dark backgrounds */
+.theme-dark .form-group input,
+.theme-dark .form-group select,
+.theme-dark .form-group textarea,
+.theme-dark .form-row input,
+.theme-dark .form-row select,
+.theme-dark .form-row textarea {
+    background: #1a1a2e;
+    border-color: #2a2a4a;
+    color: #e2e8f0;
+}
+
+.theme-dark .form-group input:focus,
+.theme-dark .form-group select:focus,
+.theme-dark .form-group textarea:focus,
+.theme-dark .form-row input:focus,
+.theme-dark .form-row select:focus,
+.theme-dark .form-row textarea:focus {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.theme-dark .form-group input::placeholder,
+.theme-dark .form-group textarea::placeholder,
+.theme-dark .form-row input::placeholder,
+.theme-dark .form-row textarea::placeholder {
+    color: #4a5568;
+}
+
+/* Table alternating rows */
+.theme-dark tr:nth-child(even) {
+    background: #1a1a2e;
+}
+
+.theme-dark tr:hover {
+    background: #1e2a4a;
+}
+
+/* Card headings */
+.theme-dark .card h2,
+.theme-dark .card h3 {
+    color: #e2e8f0;
+}
+
+/* SOAP headers */
+.theme-dark .soap-section .soap-header {
+    background: #1e2a4a;
+    color: #e2e8f0;
+}
+
+/* Sidebar nav hover */
+.theme-dark .sb-nav-item:hover,
+.theme-dark .sidebar .nav-item:hover {
+    background: #2a2a4a;
+}
+
+/* Adherence bar track */
+.theme-dark .adherence-bar {
+    background: #2a2a4a;
+}
+
+/* Lab values */
+.theme-dark .lab-abnormal-high { color: #fc8181; }
+.theme-dark .lab-abnormal-low  { color: #63b3ed; }
+
+/* Settings borders */
+.theme-dark .settings-section {
+    border-bottom-color: #2a2a4a;
+}
+
+/* Links */
+.theme-dark a {
+    color: var(--color-accent);
+}
+
+/* Side bar search in dark mode */
+.theme-dark .side-bar-search input {
+    background: #1a1a2e;
+    border-color: #2a2a4a;
+    color: #e2e8f0;
+}

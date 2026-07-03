@@ -1,0 +1,4 @@
+# Live test local config and generated reports
+.env.livetest
+livetest/reports/*.md
+!livetest/reports/.gitkeep

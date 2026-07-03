@@ -1,0 +1,9 @@
+[project]
+name = "designmcp"
+version = "0.1.0"
+description = "MCP server exposing UserApp REST surface to Claude Design"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

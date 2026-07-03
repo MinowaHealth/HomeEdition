@@ -1,0 +1,283 @@
+{
+  "meta": {
+    "tenant_id": 1,
+    "user_id": "b015b015-0001-0001-0003-b00000000003",
+    "email": "lucrezia@borgia.family",
+    "display_name": "Lucrezia Borgia",
+    "biological_sex": "female",
+    "birth_year": 2012,
+    "home_timezone": "America/New_York",
+    "schema_version": "healthv10",
+    "generated_at": "2026-03-03T12:00:00+00:00",
+    "source": "Synthea FHIR bulk export samples (smart-on-fhir/sample-bulk-fhir-datasets, Apache 2.0 / CC BY 4.0), adapted for Minowa Home Edition Borgia test characters"
+  },
+  "health_conditions": [
+    {
+      "id": "c0c0c0c0-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "name": "Adjustment disorder with depressed mood",
+      "icd10_code": "F43.21",
+      "diagnosed_date": "2024-10-19",
+      "status": "active",
+      "severity": "moderate",
+      "treating_doctor": "Dr. Paracelsus",
+      "notes": "Mental health — school psychiatric care"
+    },
+    {
+      "id": "c0c0c0c0-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "name": "Chronic insomnia",
+      "icd10_code": "G47.00",
+      "diagnosed_date": "2024-10-19",
+      "status": "active",
+      "severity": "mild",
+      "treating_doctor": "Dr. Paracelsus",
+      "notes": "Difficulty initiating sleep; vivid dreams"
+    }
+  ],
+  "health_allergies": [],
+  "health_inputs": [
+    {
+      "id": "d05ed05e-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "name": "Melatonin 3 MG",
+      "input_type": "supplement",
+      "dosage": "3 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "as needed at bedtime",
+      "route": "oral",
+      "take_with_food": false,
+      "start_date": "2025-01-27",
+      "prescribing_doctor": null,
+      "active": true,
+      "notes": "PRN for sleep onset; max 1 dose/night",
+      "custom_fields": {
+        "category": "mental_health"
+      }
+    }
+  ],
+  "timeframes": [
+    {
+      "id": "71f3f4a1-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "name": "Evening",
+      "time_of_day": "20:00:00",
+      "sort_order": 1,
+      "is_active": true
+    }
+  ],
+  "stacks": [
+    {
+      "id": "51ac51ac-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "name": "Evening Medications",
+      "timeframe_id": "71f3f4a1-0003-4001-8001-000000000001",
+      "is_active": true,
+      "sort_order": 1
+    }
+  ],
+  "stack_inputs": [
+    {
+      "id": "511a511a-0003-4001-8001-000000000065",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "stack_id": "51ac51ac-0003-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0003-4001-8001-000000000001",
+      "sort_order": 1
+    }
+  ],
+  "health_blood_pressure_readings": [
+    {
+      "id": "b100b100-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "measured_at": "2026-01-02T09:00:00+00:00",
+      "systolic": 102,
+      "diastolic": 64,
+      "pulse": 72,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "measured_at": "2025-09-04T09:00:00+00:00",
+      "systolic": 100,
+      "diastolic": 62,
+      "pulse": 70,
+      "position": "sitting",
+      "arm": "left"
+    }
+  ],
+  "health_blood_work": [
+    {
+      "id": "b100d100-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "test_date": "2025-12-03",
+      "test_name": "Hemoglobin",
+      "value": 13.8,
+      "unit": "g/dL",
+      "reference_range": "12.0-16.0",
+      "is_abnormal": false,
+      "loinc_code": "718-7",
+      "panel_name": "CBC",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "test_date": "2025-12-03",
+      "test_name": "Ferritin",
+      "value": 28.0,
+      "unit": "ng/mL",
+      "reference_range": "12-150",
+      "is_abnormal": false,
+      "loinc_code": "2276-4",
+      "panel_name": "Iron Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0003-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "test_date": "2025-12-03",
+      "test_name": "Vitamin D, 25-hydroxy",
+      "value": 18.0,
+      "unit": "ng/mL",
+      "reference_range": "30-100",
+      "is_abnormal": true,
+      "loinc_code": "1989-3",
+      "panel_name": "Vitamin D",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    }
+  ],
+  "health_metrics": [
+    {
+      "id": "e71ca1ce-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "metric_type": "weight",
+      "value": 48,
+      "unit": "kg",
+      "recorded_at": "2026-02-01T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "metric_type": "weight",
+      "value": 47,
+      "unit": "kg",
+      "recorded_at": "2025-09-04T09:00:00+00:00",
+      "source": "manual"
+    }
+  ],
+  "health_family_history": [
+    {
+      "id": "fa1ffa1f-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "relationship": "father",
+      "condition_name": "Anxiety disorder",
+      "icd10_code": "F41.1",
+      "age_at_onset": 30,
+      "vital_status": "alive",
+      "notes": null
+    },
+    {
+      "id": "fa1ffa1f-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "relationship": "mother",
+      "condition_name": "Iron deficiency anemia",
+      "icd10_code": "D50.9",
+      "age_at_onset": 35,
+      "vital_status": "alive",
+      "notes": null
+    }
+  ],
+  "health_social_history": [
+    {
+      "id": "50c150c1-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "category": "tobacco_use",
+      "status": "never",
+      "detail": "Non-smoker; minor",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "category": "alcohol_use",
+      "status": "never",
+      "detail": "Does not drink; minor",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0003-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "category": "employment",
+      "status": "current",
+      "detail": "Academy student",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0003-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "category": "exercise",
+      "status": "current",
+      "detail": "Archery, fencing, solo runs",
+      "quantity": null
+    }
+  ],
+  "health_vaccinations": [
+    {
+      "id": "7acc7acc-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "vaccine_name": "Influenza, seasonal, injectable, preservative free",
+      "administered_date": "2025-09-24",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "vaccine_name": "HPV, quadrivalent",
+      "administered_date": "2025-05-07",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0003-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "vaccine_name": "Tdap",
+      "administered_date": "2024-04-02",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0003-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "vaccine_name": "meningococcal MCV4P",
+      "administered_date": "2024-04-02",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    }
+  ],
+  "health_observations": [
+    {
+      "id": "0b5e0b5e-0003-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "observed_at": "2026-02-01T10:00:00+00:00",
+      "category": "mental_health",
+      "content": "Patient reports persistent difficulty sleeping and low mood. Denies suicidal ideation. Sleep hygiene reviewed. Melatonin continued.",
+      "severity": 2
+    },
+    {
+      "id": "0b5e0b5e-0003-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0003-b00000000003",
+      "observed_at": "2025-08-15T10:00:00+00:00",
+      "category": "mental_health",
+      "content": "Initial psychiatric intake. Patient articulate and insightful. Adjustment disorder diagnosis established.",
+      "severity": 2
+    }
+  ]
+}

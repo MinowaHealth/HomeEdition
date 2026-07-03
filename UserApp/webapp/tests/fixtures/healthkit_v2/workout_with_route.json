@@ -1,0 +1,40 @@
+{
+  "payload_version": 2,
+  "sources": [
+    {
+      "source_name": "Apple Watch",
+      "source_bundle_id": "com.apple.health",
+      "source_version": "18.3",
+      "device_name": "My Apple Watch",
+      "device_model": "Watch6,5"
+    }
+  ],
+  "workouts": [
+    {
+      "workout_type": "HKWorkoutActivityTypeRunning",
+      "start": "2026-04-09T06:32:00Z",
+      "end": "2026-04-09T07:08:00Z",
+      "duration_seconds": 2160,
+      "total_distance": 5840,
+      "total_distance_unit": "m",
+      "total_energy_burned": 412,
+      "total_energy_burned_unit": "kcal",
+      "source_ref": 0,
+      "metadata": {
+        "HKAverageMETs": 8.2,
+        "HKIndoorWorkout": false,
+        "HKWeatherTemperature": "14 degC"
+      },
+      "route": [
+        {"lat": 41.0828, "lon": -95.9450, "ts": "2026-04-09T06:32:05Z", "alt": 315.2},
+        {"lat": 41.0835, "lon": -95.9456, "ts": "2026-04-09T06:33:00Z", "alt": 316.1},
+        {"lat": 41.0842, "lon": -95.9463, "ts": "2026-04-09T06:34:00Z", "alt": 317.5},
+        {"lat": 41.0858, "lon": -95.9481, "ts": "2026-04-09T06:36:00Z", "alt": 319.0}
+      ],
+      "events": [
+        {"type": "HKWorkoutEventTypePause", "date": "2026-04-09T06:50:00Z"},
+        {"type": "HKWorkoutEventTypeResume", "date": "2026-04-09T06:51:00Z"}
+      ]
+    }
+  ]
+}

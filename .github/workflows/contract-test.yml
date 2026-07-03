@@ -1,0 +1,236 @@
+# API contract tests
+#
+# Two jobs:
+#   - spec-lint: runs on every push/PR that touches the spec or this workflow.
+#     Validates APIDocumentation/openapi.yaml is structurally correct and that
+#     schemathesis can parse it. Never hits a server.
+#
+#   - pr-profile-a: boots Postgres + the Flask app and runs Schemathesis
+#     profile A (read-only GETs, unauthenticated, 50 examples/op) against the
+#     local instance. Failures block merge.
+#
+# Doctrine: APIDocumentation/ContractTestingCadence.md
+
+name: Contract Tests
+
+on:
+  workflow_dispatch: {}  # manual re-run (e.g. after an infra fix that path filters miss)
+  # Same branch policy as ci.yml: only main fires CI. Feature branches
+  # iterate locally (Mac Docker). The paths inclusion filter already
+  # excludes markdown changes — it triggers only when openapi.yaml itself
+  # or this workflow file changes, so no separate paths-ignore is needed.
+  push:
+    branches: [main]
+    paths:
+      - "APIDocumentation/openapi.yaml"
+      - "APIDocumentation/route_audit_allowlist.txt"
+      - "APIDocumentation/route_spec_audit.py"
+      - "UserApp/webapp/app.py"
+      - "UserApp/webapp/auth.py"
+      - "UserApp/webapp/routes/**.py"
+      - ".github/workflows/contract-test.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "APIDocumentation/openapi.yaml"
+      - "APIDocumentation/route_audit_allowlist.txt"
+      - "APIDocumentation/route_spec_audit.py"
+      - "UserApp/webapp/app.py"
+      - "UserApp/webapp/auth.py"
+      - "UserApp/webapp/routes/**.py"
+      - ".github/workflows/contract-test.yml"
+
+env:
+  PYTHON_VERSION: "3.12"
+  SPEC_PATH: "APIDocumentation/openapi.yaml"
+  SCHEMATHESIS_PIN: "schemathesis==4.18.1"
+
+jobs:
+  spec-lint:
+    name: Lint OpenAPI spec
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install validators
+        # Two-tier lint: openapi-spec-validator enforces the OpenAPI 3.1 JSON
+        # schema strictly; the schemathesis loader is what pr-profile-a uses,
+        # so a clean load here proves the spec is fuzz-ready.
+        run: pip install "openapi-spec-validator>=0.7" "${{ env.SCHEMATHESIS_PIN }}" PyYAML
+
+      - name: Validate spec (openapi-spec-validator)
+        run: openapi-spec-validator ${{ env.SPEC_PATH }}
+
+      - name: Validate spec (schemathesis loader)
+        run: |
+          python -c "
+          from schemathesis.openapi import from_path
+          schema = from_path('${{ env.SPEC_PATH }}')
+          ops = list(schema.get_all_operations())
+          print(f'OK — {len(ops)} operations parsed')
+          assert len(ops) >= 30, f'expected >=30 ops, got {len(ops)}'
+          "
+
+      - name: Route ↔ spec drift audit
+        # Fires on every backend code push, not just spec edits. Catches the
+        # dominant drift mode: new endpoint lands in code, spec/allowlist
+        # not updated. Doctrine: APIDocumentation/ContractTestingCadence.md
+        run: python APIDocumentation/route_spec_audit.py
+
+  pr-profile-a:
+    name: PR Profile A (full-stack smoke)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: spec-lint
+    # Boots Postgres + the Flask app, runs Schemathesis profile A (GETs,
+    # unauthenticated, 50 examples per op). Failures block merge.
+    # Doctrine: APIDocumentation/ContractTestingCadence.md
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: Password2026
+          POSTGRES_DB: healthv10
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r UserApp/webapp/requirements.txt
+          pip install "${{ env.SCHEMATHESIS_PIN }}"
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Initialize schema + app role
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: Password2026
+          PGDATABASE: healthv10
+        run: |
+          psql -v ON_ERROR_STOP=1 -f Infrastructure/init/docker-init-home/02-home_schema.sql
+          psql -v ON_ERROR_STOP=1 -v app_db_password='ci-test-password' \
+               -f Infrastructure/init/docker-init-home/role/app-role-setup.sql
+
+      - name: Start webapp
+        # Background gunicorn matching the production entrypoint. 2 workers
+        # is enough for the schemathesis smoke; --timeout 60 keeps slow-path
+        # requests from killing the worker mid-run. Logs go to a file so
+        # the post-run report has them on artifact upload.
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: healthv10
+          # db_manager.py reads the dual-credential pair: POSTGRES_* (admin,
+          # used for auth/session bootstrap) and APP_DB_* (the non-superuser
+          # role created by role/app-role-setup.sql). Setting only one fails
+          # fast at import time.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: Password2026
+          APP_DB_USER: healthv10_app
+          APP_DB_PASSWORD: ci-test-password
+          SECRET_KEY: ci-profile-a-secret
+          FLASK_ENV: testing
+          APP_API_KEY: ci-profile-a-api-key
+          TIMEZONE: America/Los_Angeles
+          CORS_ORIGINS: "http://localhost:8080"
+          FLASK_LOG_LEVEL: STANDARD
+        working-directory: UserApp/webapp
+        run: |
+          nohup gunicorn -b 127.0.0.1:8080 --workers 2 --timeout 60 \
+                --access-logfile - --error-logfile - \
+                app:app > "$GITHUB_WORKSPACE/webapp.log" 2>&1 &
+          echo "$!" > "$GITHUB_WORKSPACE/webapp.pid"
+          # Wait up to 60s for the webapp to answer. 30s was tight on a fresh
+          # CI runner — gunicorn workers spend ~10-15s on
+          # logging/tracing/metrics + DB pool bootstrap after the parent
+          # reports listening, so the smoke window has to accommodate that.
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/v1/session > /dev/null 2>&1; then
+              echo "webapp up (returned 200 — unexpected, should be 401)"
+              exit 0
+            fi
+            if curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/v1/session 2>/dev/null | grep -q '^401$'; then
+              echo "webapp up (401 as expected from unauthenticated /api/v1/session)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::webapp did not respond within 60s"
+          cat "$GITHUB_WORKSPACE/webapp.log"
+          exit 1
+
+      - name: Run Schemathesis profile A
+        # Profile A: GETs only, unauthenticated, 50 examples per op,
+        # 4 workers, NDJSON + JUnit reports.
+        #
+        # --phases=coverage,fuzzing intentionally drops the default
+        # `stateful` phase. Stateful needs OpenAPI links (createX → mutateX
+        # chains), all of which originate from POST ops — `--include-method=GET`
+        # filters them out, which Schemathesis v4 treats as a hard "Missing
+        # Open API links" error. Stateful coverage is profile E's job.
+        run: |
+          mkdir -p fuzz-reports/pr-profile-a
+          schemathesis run \
+            "${{ env.SPEC_PATH }}" \
+            --url=http://127.0.0.1:8080 \
+            --include-method=GET \
+            --phases=coverage,fuzzing \
+            --max-examples=50 \
+            --workers=4 \
+            --rate-limit=20/s \
+            --report=junit \
+            --report=ndjson \
+            --report-dir=./fuzz-reports/pr-profile-a/ \
+            --header=User-Agent:HomeEdition-CI-Fuzz/1.0
+
+      - name: Generate campaign report
+        if: always()
+        run: |
+          python UserApp/fuzztest/report.py fuzz-reports/ || true
+          # Print first 100 lines of the report into the job log so
+          # failures are diagnosable without opening the artifact.
+          if [[ -f fuzz-reports/CAMPAIGN_REPORT.md ]]; then
+            echo "--- CAMPAIGN_REPORT.md (first 100 lines) ---"
+            head -100 fuzz-reports/CAMPAIGN_REPORT.md
+          fi
+
+      - name: Capture webapp log
+        if: always()
+        run: |
+          mkdir -p fuzz-reports/pr-profile-a
+          if [[ -f webapp.log ]]; then
+            cp webapp.log fuzz-reports/pr-profile-a/webapp.log
+          fi
+
+      - name: Upload PR profile A reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-profile-a-${{ github.run_id }}
+          path: fuzz-reports/
+          retention-days: 14

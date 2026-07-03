@@ -1,0 +1,51 @@
+# Minowa.ai healthv10 Web Application Dependencies
+# Pin policy: shared runtime deps (flask, gunicorn, psycopg, argon2-cffi,
+# pyotp, python-dotenv, pytz) are exact-pinned and
+# aligned across services for reproducible Docker builds.
+# Ecosystem deps (httpx, etc.) use
+# floors so dependabot can roll them forward inside their safe range.
+
+# Web framework
+flask==3.1.3
+flask-cors==6.0.2
+gunicorn==25.3.0
+
+# Database (psycopg3 only — psycopg2 retired 2026-05-02)
+psycopg[binary,pool]==3.2.*
+pgvector>=0.4.2
+numpy>=2.4.4
+
+# Authentication
+argon2-cffi==25.1.0
+pyotp==2.9.0
+
+# Utilities
+python-dotenv==1.2.2
+pytz==2026.1.post1
+httpx>=0.28.1,<1
+
+# Document OCR — runs in-process on upload (Home Edition, no broker).
+# Requires the tesseract-ocr + poppler-utils system packages (see Dockerfile)
+# and libmagic for python-magic.
+pytesseract==0.3.13
+Pillow==12.2.0
+pdf2image==1.17.0
+python-magic==0.4.27
+
+# Garmin integration
+# Pin to the last garth-era release: 0.3.x dropped the `garth` dependency and the
+# `Garmin.garth` attribute that garmin_worker.py / routes/integrations.py rely on
+# (garmin.garth.dumps/loads/connectapi). Unbounded >=0.3.2 let 0.3.6 install on a
+# fresh build and broke sync with "'Garmin' object has no attribute 'garth'".
+garminconnect==0.2.40
+
+# API documentation (route introspection → OpenAPI 3.0 spec)
+apispec>=6.10.0
+apispec-webframeworks>=1.2.0
+
+# Test coverage (CI gate — see Compliance/QualityControlPlan.md #3)
+pytest-cov>=7.1.0
+
+# Safe XML parsing for user-uploaded HealthKit exports (XXE / billion-laughs
+# defense — see APIDocumentation/HealthKit/XML-XXE-Hardening.md)
+defusedxml>=0.7.1

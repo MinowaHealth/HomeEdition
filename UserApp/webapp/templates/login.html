@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Minowa.ai</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 48px;
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo h1 {
+            font-size: 28px;
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+
+        .logo p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-login:active {
+            transform: translateY(0);
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #c33;
+            font-size: 14px;
+        }
+
+        .info-message {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-top: 24px;
+            border-left: 4px solid #1976d2;
+            font-size: 13px;
+        }
+
+        .forgot-password {
+            text-align: center;
+            margin-top: 16px;
+        }
+
+        .forgot-password a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .forgot-password a:hover {
+            text-decoration: underline;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 32px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        .twofa-container {
+            text-align: center;
+        }
+
+        .twofa-code-input {
+            width: 160px !important;
+            padding: 16px !important;
+            font-size: 28px !important;
+            font-family: monospace;
+            text-align: center;
+            letter-spacing: 8px;
+            margin: 0 auto 24px auto;
+            display: block;
+        }
+
+        .back-link {
+            display: block;
+            margin-top: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .info-2fa {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 32px 24px;
+            }
+
+            .logo h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>🏥 Minowa.ai</h1>
+            <p>Alpha Testing Platform</p>
+        </div>
+
+        {% if error %}
+        <div class="error-message">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        {% if requires_2fa %}
+        <!-- 2FA Verification Form -->
+        <div class="twofa-container">
+            <div class="info-2fa">
+                Enter the 6-digit code from your authenticator app{% if email %} for <strong>{{ email }}</strong>{% endif %}.
+            </div>
+
+            <form id="twofa-form">
+                <input type="hidden" id="pending_token" value="{{ pending_token }}">
+
+                <div class="form-group">
+                    <input type="text" id="twofa_code" class="twofa-code-input"
+                        maxlength="8" required autofocus
+                        placeholder="000000"
+                        autocomplete="one-time-code"
+                        inputmode="numeric"
+                        pattern="[0-9A-Za-z]*">
+                </div>
+
+                <button type="submit" class="btn-login" id="verify-btn">
+                    Verify
+                </button>
+            </form>
+
+            <a href="/login" class="back-link">← Back to login</a>
+
+            <div style="margin-top: 20px; color: #666; font-size: 13px;">
+                You can also use a backup code if you don't have access to your authenticator app.
+            </div>
+        </div>
+        {% else %}
+        <!-- Normal Login Form -->
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autofocus autocomplete="email"
+                    placeholder="Enter your email">
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password"
+                    placeholder="Enter your password">
+            </div>
+
+            <button type="submit" class="btn-login">
+                Sign In
+            </button>
+        </form>
+
+        <div class="forgot-password">
+            <a href="/forgot-password">Forgot password?</a>
+        </div>
+
+        <div class="info-message">
+            <strong>Alpha Testers:</strong> Use the credentials provided by your administrator.
+        </div>
+        {% endif %}
+
+        <div class="footer">
+            Minowa.ai v0.9.0-alpha &copy; 2025
+        </div>
+    </div>
+
+    <script>
+        // Email input is handled server-side (case-insensitive normalization)
+
+        // 2FA form handling
+        const twofaForm = document.getElementById('twofa-form');
+        if (twofaForm) {
+            const codeInput = document.getElementById('twofa_code');
+            const verifyBtn = document.getElementById('verify-btn');
+            const pendingToken = document.getElementById('pending_token').value;
+
+            // Auto-focus and format input
+            codeInput.addEventListener('input', function(e) {
+                // Allow digits and letters (for backup codes)
+                this.value = this.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+            });
+
+            twofaForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const code = codeInput.value.trim();
+
+                if (!code) {
+                    showError('Please enter your verification code');
+                    return;
+                }
+
+                verifyBtn.disabled = true;
+                verifyBtn.textContent = 'Verifying...';
+
+                try {
+                    const response = await fetch('/api/v1/2fa/verify', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            pending_2fa_token: pendingToken,
+                            code: code
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.success) {
+                        // Store session token and redirect
+                        window.location.href = '/';
+                    } else {
+                        showError(data.error || 'Invalid verification code');
+                        verifyBtn.disabled = false;
+                        verifyBtn.textContent = 'Verify';
+                        codeInput.value = '';
+                        codeInput.focus();
+                    }
+                } catch (err) {
+                    showError('An error occurred. Please try again.');
+                    verifyBtn.disabled = false;
+                    verifyBtn.textContent = 'Verify';
+                }
+            });
+
+            function showError(message) {
+                // Remove any existing error
+                const existing = document.querySelector('.error-message');
+                if (existing) existing.remove();
+
+                // Add new error
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = message;
+
+                const container = document.querySelector('.twofa-container');
+                container.insertBefore(errorDiv, container.firstChild);
+            }
+        }
+    </script>
+</body>
+
+</html>

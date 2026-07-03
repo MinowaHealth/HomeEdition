@@ -1,0 +1,20 @@
+# Allowed deltas between backend-declared events and client-emitted-events.json.
+#
+# Consumed by tests/contracts/test_event_drift.py. Edit when a legitimate
+# divergence exists; the test will fail on any delta NOT listed here.
+#
+# backend_only: event declared server-side, no client emitter
+#   - server-fired events (cron completions, ETL milestones)
+#   - intentionally deprecated events kept for analytics-archaeology
+#
+# client_only: event emitted client-side, no backend declaration
+#   - client-only events (UI interactions with no server companion)
+#   - SHOULD have a reason; "no server companion needed" is a valid one
+
+backend_only: []
+#  - name: document_uploaded
+#    reason: "fired server-side on upload, never from client"
+
+client_only: []
+#  - name: screen_viewed
+#    reason: "UI navigation telemetry, no server-side companion expected"

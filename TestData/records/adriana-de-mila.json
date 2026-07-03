@@ -1,0 +1,611 @@
+{
+  "meta": {
+    "tenant_id": 1,
+    "user_id": "b015b015-0001-0001-0006-b00000000006",
+    "email": "adriana@borgia.family",
+    "display_name": "Adriana de Mila",
+    "biological_sex": "female",
+    "birth_year": 1940,
+    "home_timezone": "America/New_York",
+    "schema_version": "healthv10",
+    "generated_at": "2026-03-03T12:00:00+00:00",
+    "source": "Synthea FHIR bulk export samples (smart-on-fhir/sample-bulk-fhir-datasets, Apache 2.0 / CC BY 4.0), adapted for Minowa Home Edition Borgia test characters"
+  },
+  "health_conditions": [
+    {
+      "id": "c0c0c0c0-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Osteoporosis without pathological fracture",
+      "icd10_code": "M81.0",
+      "diagnosed_date": "2012-06-24",
+      "status": "managed",
+      "severity": "severe",
+      "treating_doctor": "Dr. Cardano",
+      "notes": "DEXA T-score: -3.1 at lumbar spine"
+    },
+    {
+      "id": "c0c0c0c0-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Essential hypertension",
+      "icd10_code": "I10",
+      "diagnosed_date": "2007-01-02",
+      "status": "managed",
+      "severity": "moderate",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "Labile; white coat effect noted"
+    },
+    {
+      "id": "c0c0c0c0-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Type 2 diabetes mellitus",
+      "icd10_code": "E11.9",
+      "diagnosed_date": "2008-05-16",
+      "status": "managed",
+      "severity": "mild",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "Well controlled on low-dose Metformin"
+    },
+    {
+      "id": "c0c0c0c0-0006-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Mild cognitive impairment",
+      "icd10_code": "G31.84",
+      "diagnosed_date": "2022-11-19",
+      "status": "monitoring",
+      "severity": "mild",
+      "treating_doctor": "Dr. Cardano",
+      "notes": "MMSE 24/30; progressive over 2 years"
+    },
+    {
+      "id": "c0c0c0c0-0006-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Gastroesophageal reflux disease",
+      "icd10_code": "K21.0",
+      "diagnosed_date": "2017-12-15",
+      "status": "managed",
+      "severity": "mild",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "Managed with PPI; avoid NSAIDs"
+    }
+  ],
+  "health_allergies": [
+    {
+      "id": "a11a11a1-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "allergen": "NSAIDs (Non-steroidal anti-inflammatory drugs)",
+      "allergy_type": "medication",
+      "reaction": "GI bleeding, gastric ulcer",
+      "severity": "severe",
+      "onset_date": "2017-12-15",
+      "status": "active",
+      "source": "manual",
+      "notes": "Documented GI bleed requiring hospitalisation 1996"
+    }
+  ],
+  "health_inputs": [
+    {
+      "id": "d05ed05e-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Alendronate 70 MG Oral Tablet",
+      "input_type": "medication",
+      "dosage": "70 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "once weekly",
+      "route": "oral",
+      "take_with_food": false,
+      "start_date": "2012-06-24",
+      "prescribing_doctor": "Dr. Cardano",
+      "active": true,
+      "notes": "Take on empty stomach with full glass of water; remain upright 30 min"
+    },
+    {
+      "id": "d05ed05e-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Lisinopril 5 MG Oral Tablet",
+      "input_type": "medication",
+      "dosage": "5 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2007-01-02",
+      "prescribing_doctor": "Dr. Torrella",
+      "active": true,
+      "notes": "Low dose; monitor renal function and potassium"
+    },
+    {
+      "id": "d05ed05e-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Metformin Hydrochloride 500 MG Oral Tablet",
+      "input_type": "medication",
+      "dosage": "500 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "twice daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2008-05-16",
+      "prescribing_doctor": "Dr. Torrella",
+      "active": true,
+      "notes": "Take with meals to reduce GI side effects"
+    },
+    {
+      "id": "d05ed05e-0006-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Donepezil 5 MG Oral Tablet",
+      "input_type": "medication",
+      "dosage": "5 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "once daily at bedtime",
+      "route": "oral",
+      "take_with_food": false,
+      "start_date": "2022-11-19",
+      "prescribing_doctor": "Dr. Cardano",
+      "active": true,
+      "notes": "For mild cognitive impairment; monitor for GI effects"
+    },
+    {
+      "id": "d05ed05e-0006-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Omeprazole 20 MG Delayed Release Capsule",
+      "input_type": "medication",
+      "dosage": "20 mg",
+      "default_unit": "mg",
+      "form": "capsule",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": false,
+      "start_date": "2017-12-15",
+      "prescribing_doctor": "Dr. Torrella",
+      "active": true,
+      "notes": "GI protection; take 30 min before breakfast"
+    },
+    {
+      "id": "d05ed05e-0006-4001-8001-000000000006",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Calcium Carbonate 600 MG + Vitamin D3 400 IU",
+      "input_type": "supplement",
+      "dosage": "600 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "twice daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2012-06-24",
+      "prescribing_doctor": "Dr. Cardano",
+      "active": true,
+      "notes": "With meals for absorption"
+    }
+  ],
+  "timeframes": [
+    {
+      "id": "71f3f4a1-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Weekly",
+      "time_of_day": "08:00:00",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "71f3f4a1-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Morning",
+      "time_of_day": "08:00:00",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "71f3f4a1-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Evening",
+      "time_of_day": "20:00:00",
+      "sort_order": 3,
+      "is_active": true
+    }
+  ],
+  "stacks": [
+    {
+      "id": "51ac51ac-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Weekly Medications",
+      "timeframe_id": "71f3f4a1-0006-4001-8001-000000000001",
+      "is_active": true,
+      "sort_order": 1
+    },
+    {
+      "id": "51ac51ac-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Morning Medications",
+      "timeframe_id": "71f3f4a1-0006-4001-8001-000000000002",
+      "is_active": true,
+      "sort_order": 2
+    },
+    {
+      "id": "51ac51ac-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "name": "Evening Medications",
+      "timeframe_id": "71f3f4a1-0006-4001-8001-000000000003",
+      "is_active": true,
+      "sort_order": 3
+    }
+  ],
+  "stack_inputs": [
+    {
+      "id": "511a511a-0006-4001-8001-000000000065",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "stack_id": "51ac51ac-0006-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0006-4001-8001-000000000001",
+      "sort_order": 1
+    },
+    {
+      "id": "511a511a-0006-4001-8001-0000000000c9",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "stack_id": "51ac51ac-0006-4001-8001-000000000002",
+      "health_input_id": "d05ed05e-0006-4001-8001-000000000002",
+      "sort_order": 1
+    },
+    {
+      "id": "511a511a-0006-4001-8001-0000000000ca",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "stack_id": "51ac51ac-0006-4001-8001-000000000002",
+      "health_input_id": "d05ed05e-0006-4001-8001-000000000003",
+      "sort_order": 2
+    },
+    {
+      "id": "511a511a-0006-4001-8001-0000000000cb",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "stack_id": "51ac51ac-0006-4001-8001-000000000002",
+      "health_input_id": "d05ed05e-0006-4001-8001-000000000005",
+      "sort_order": 3
+    },
+    {
+      "id": "511a511a-0006-4001-8001-0000000000cc",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "stack_id": "51ac51ac-0006-4001-8001-000000000002",
+      "health_input_id": "d05ed05e-0006-4001-8001-000000000006",
+      "sort_order": 4
+    },
+    {
+      "id": "511a511a-0006-4001-8001-00000000012d",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "stack_id": "51ac51ac-0006-4001-8001-000000000003",
+      "health_input_id": "d05ed05e-0006-4001-8001-000000000004",
+      "sort_order": 1
+    }
+  ],
+  "health_blood_pressure_readings": [
+    {
+      "id": "b100b100-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "measured_at": "2026-02-01T09:00:00+00:00",
+      "systolic": 158,
+      "diastolic": 92,
+      "pulse": 66,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "measured_at": "2026-01-17T09:00:00+00:00",
+      "systolic": 162,
+      "diastolic": 96,
+      "pulse": 68,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "measured_at": "2025-12-03T09:00:00+00:00",
+      "systolic": 154,
+      "diastolic": 90,
+      "pulse": 64,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0006-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "measured_at": "2025-11-03T09:00:00+00:00",
+      "systolic": 170,
+      "diastolic": 98,
+      "pulse": 70,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0006-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "measured_at": "2025-09-04T09:00:00+00:00",
+      "systolic": 162,
+      "diastolic": 94,
+      "pulse": 66,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0006-4001-8001-000000000006",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "measured_at": "2025-06-06T09:00:00+00:00",
+      "systolic": 168,
+      "diastolic": 96,
+      "pulse": 68,
+      "position": "sitting",
+      "arm": "left"
+    }
+  ],
+  "health_blood_work": [
+    {
+      "id": "b100d100-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "test_date": "2026-01-17",
+      "test_name": "Hemoglobin A1c",
+      "value": 6.4,
+      "unit": "%",
+      "reference_range": "<7.0",
+      "is_abnormal": false,
+      "loinc_code": "4548-4",
+      "panel_name": "HbA1c",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "test_date": "2026-01-17",
+      "test_name": "Creatinine",
+      "value": 1.2,
+      "unit": "mg/dL",
+      "reference_range": "0.5-1.1",
+      "is_abnormal": true,
+      "loinc_code": "2160-0",
+      "panel_name": "CMP",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "test_date": "2026-01-17",
+      "test_name": "Potassium",
+      "value": 4.4,
+      "unit": "mEq/L",
+      "reference_range": "3.5-5.1",
+      "is_abnormal": false,
+      "loinc_code": "6298-4",
+      "panel_name": "CMP",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0006-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "test_date": "2026-01-17",
+      "test_name": "Vitamin D, 25-hydroxy",
+      "value": 22.0,
+      "unit": "ng/mL",
+      "reference_range": "30-100",
+      "is_abnormal": true,
+      "loinc_code": "1989-3",
+      "panel_name": "Vitamin D",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Cardano"
+    },
+    {
+      "id": "b100d100-0006-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "test_date": "2026-01-17",
+      "test_name": "Calcium",
+      "value": 9.1,
+      "unit": "mg/dL",
+      "reference_range": "8.5-10.5",
+      "is_abnormal": false,
+      "loinc_code": "17861-6",
+      "panel_name": "CMP",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Cardano"
+    },
+    {
+      "id": "b100d100-0006-4001-8001-000000000006",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "test_date": "2026-01-17",
+      "test_name": "Albumin",
+      "value": 3.4,
+      "unit": "g/dL",
+      "reference_range": "3.5-5.0",
+      "is_abnormal": true,
+      "loinc_code": "1751-7",
+      "panel_name": "CMP",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0006-4001-8001-000000000007",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "test_date": "2025-01-17",
+      "test_name": "Hemoglobin A1c",
+      "value": 6.8,
+      "unit": "%",
+      "reference_range": "<7.0",
+      "is_abnormal": false,
+      "loinc_code": "4548-4",
+      "panel_name": "HbA1c",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0006-4001-8001-000000000008",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "test_date": "2025-01-17",
+      "test_name": "Creatinine",
+      "value": 1.1,
+      "unit": "mg/dL",
+      "reference_range": "0.5-1.1",
+      "is_abnormal": false,
+      "loinc_code": "2160-0",
+      "panel_name": "CMP",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    }
+  ],
+  "health_metrics": [
+    {
+      "id": "e71ca1ce-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "metric_type": "weight",
+      "value": 54,
+      "unit": "kg",
+      "recorded_at": "2026-02-01T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "metric_type": "weight",
+      "value": 53,
+      "unit": "kg",
+      "recorded_at": "2025-12-03T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "metric_type": "weight",
+      "value": 54,
+      "unit": "kg",
+      "recorded_at": "2025-09-04T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0006-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "metric_type": "weight",
+      "value": 56,
+      "unit": "kg",
+      "recorded_at": "2025-03-03T09:00:00+00:00",
+      "source": "manual"
+    }
+  ],
+  "health_family_history": [
+    {
+      "id": "fa1ffa1f-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "relationship": "son",
+      "condition_name": "Hypertension",
+      "icd10_code": "I10",
+      "age_at_onset": 48,
+      "vital_status": "alive",
+      "notes": "Rodrigo Borgia"
+    },
+    {
+      "id": "fa1ffa1f-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "relationship": "son",
+      "condition_name": "Hypertension",
+      "icd10_code": "I10",
+      "age_at_onset": 45,
+      "vital_status": "alive",
+      "notes": "Cesare Borgia"
+    },
+    {
+      "id": "fa1ffa1f-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "relationship": "spouse",
+      "condition_name": "Cardiac arrest",
+      "icd10_code": "I46.9",
+      "age_at_onset": 70,
+      "vital_status": "deceased",
+      "notes": "Husband deceased; cardiac"
+    }
+  ],
+  "health_social_history": [
+    {
+      "id": "50c150c1-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "category": "tobacco_use",
+      "status": "former",
+      "detail": "Smoked pipe; quit 1985",
+      "quantity": "~10 pipe-years"
+    },
+    {
+      "id": "50c150c1-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "category": "alcohol_use",
+      "status": "current",
+      "detail": "Small glass of sherry nightly",
+      "quantity": "~3 drinks/week"
+    },
+    {
+      "id": "50c150c1-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "category": "employment",
+      "status": "retired",
+      "detail": "Former herbalist and midwife",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0006-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "category": "living_situation",
+      "status": "current",
+      "detail": "Lives with Rodrigo and Vannozza",
+      "quantity": null
+    }
+  ],
+  "health_vaccinations": [
+    {
+      "id": "7acc7acc-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "vaccine_name": "Influenza, seasonal, injectable, preservative free",
+      "administered_date": "2025-09-24",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "vaccine_name": "Pneumococcal polysaccharide vaccine, 23 valent (PPSV23)",
+      "administered_date": "2024-10-19",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "vaccine_name": "Zoster vaccine, live",
+      "administered_date": "2024-07-11",
+      "site": "left deltoid",
+      "administered_by": "Dr. Cardano"
+    }
+  ],
+  "health_observations": [
+    {
+      "id": "0b5e0b5e-0006-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "observed_at": "2026-02-01T10:00:00+00:00",
+      "category": "cognitive",
+      "content": "MMSE 24/30. Orientation to time mildly impaired. Word recall 2/3. Patient independent in ADLs with some prompting. Donepezil continued.",
+      "severity": 2
+    },
+    {
+      "id": "0b5e0b5e-0006-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "observed_at": "2025-12-03T10:00:00+00:00",
+      "category": "fall_risk",
+      "content": "Reports one fall in past 3 months; no injury. Gait slightly unsteady. Referral to physiotherapy for fall prevention.",
+      "severity": 3
+    },
+    {
+      "id": "0b5e0b5e-0006-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0006-b00000000006",
+      "observed_at": "2025-09-04T10:00:00+00:00",
+      "category": "bone",
+      "content": "DEXA scan repeat: T-score -3.1 lumbar, -2.6 femoral neck. No new fractures. Alendronate continued; adequate calcium and Vit D intake reinforced.",
+      "severity": 2
+    }
+  ]
+}

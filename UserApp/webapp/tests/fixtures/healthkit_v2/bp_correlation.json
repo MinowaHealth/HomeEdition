@@ -1,0 +1,33 @@
+{
+  "payload_version": 2,
+  "sources": [
+    {
+      "source_name": "Omron Connect",
+      "source_bundle_id": "com.omronhealthcare.omronconnect",
+      "source_version": "7.6.0",
+      "device_name": "Omron 10 Series",
+      "device_model": "BP7450"
+    }
+  ],
+  "samples": [
+    {
+      "type_identifier": "HKCorrelationTypeIdentifierBloodPressure",
+      "start": "2026-04-09T08:15:00Z",
+      "end": "2026-04-09T08:15:00Z",
+      "source_ref": 0,
+      "metadata": {"HKMetadataKeyExternalUUID": "omron-abc123"},
+      "components": [
+        {
+          "type_identifier": "HKQuantityTypeIdentifierBloodPressureSystolic",
+          "value": 122,
+          "unit": "mmHg"
+        },
+        {
+          "type_identifier": "HKQuantityTypeIdentifierBloodPressureDiastolic",
+          "value": 78,
+          "unit": "mmHg"
+        }
+      ]
+    }
+  ]
+}

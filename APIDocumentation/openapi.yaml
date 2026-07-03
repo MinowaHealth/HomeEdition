@@ -1,0 +1,1811 @@
+openapi: 3.1.0
+info:
+  title: Minowa.ai UserApp API
+  version: "0.2.0"
+  description: |
+    OpenAPI contract for the patient-facing UserApp API.
+
+    **Scope.** The contract covers the auth/session surface, the
+    stable health-data endpoints (health-inputs, blood-pressure, temperature,
+    weight, observations), and account-key management. It does NOT cover
+    push/pull sync endpoints (dietary settings),
+    documents/fax, or wearable sync (Garmin, HealthKit).
+    Those are intentionally deferred until their schemas stabilize.
+
+    **Doctrine.** This file is the contract. If the implementation diverges
+    from what is declared here, either the implementation or the spec is
+    wrong — schemathesis will catch the drift in CI.
+
+    **v1 / v2 aliasing.** Every `/api/v1/*` path declared below is also
+    served at the corresponding `/api/v2/*` path with identical request and
+    response shapes (the v2 routes are decorator aliases on the same handler).
+    Only v1 paths are declared here to keep the spec tight; the v2 paths
+    follow the same contract.
+
+    **To add an endpoint.** Declare the path, methods, request body, and
+    response schemas. Run `schemathesis run openapi.yaml --dry-run` locally
+    to lint, then enable the live-fuzz job once the endpoint is accurate.
+
+servers:
+  - url: http://localhost:80
+    description: Home Edition appliance (local / LAN)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+    description: Login, logout, session, password reset, signup
+  - name: 2fa
+    description: Two-factor authentication enrollment and verification
+  - name: api-keys
+    description: Long-lived bearer tokens for MCP and integrations
+  - name: account
+    description: Account-level read endpoints (identity, config, MCP setup)
+  - name: health-inputs
+    description: Medications, supplements, and other user-defined inputs
+  - name: vitals
+    description: Blood pressure, weight, temperature, observations
+
+paths:
+  # ============================================================================
+  # DIAGNOSTICS
+  # ============================================================================
+
+  /api/v1/healthz:
+    get:
+      operationId: healthz
+      tags: [diagnostics]
+      summary: Subsystem health probe (anonymous)
+      description: |
+        Unauthenticated subsystem health endpoint. Used by the HealthAI mobile
+        app's developer settings and the CLI probe (`scripts/api-probe.py`).
+        Returns 200 when every *critical* subsystem check passes and 503 when a
+        critical check fails — the body shape is identical for both. Only the
+        database is critical; embedding_upstream (Ollama) is best-effort and
+        reports `ok:false` in the body without failing the probe. Parse
+        `checks.*` for per-subsystem state rather than relying on status alone.
+      security: []
+      responses:
+        "200":
+          description: All subsystem checks passed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthzResponse"
+        "503":
+          description: At least one subsystem check failed; body shape unchanged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthzResponse"
+
+  # ============================================================================
+  # AUTH
+  # ============================================================================
+
+  /api/v1/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Authenticate with email/username + password
+      description: |
+        Returns a session token on success, or a `pending_2fa_token` if the
+        account has 2FA enabled.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login succeeded OR 2FA challenge issued
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/LoginSuccess"
+                  - $ref: "#/components/schemas/LoginRequires2FA"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/logout:
+    get:
+      operationId: logout
+      tags: [auth]
+      summary: Invalidate the current session token
+      responses:
+        "200":
+          description: Session invalidated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/session:
+    get:
+      operationId: getSession
+      tags: [auth]
+      summary: Get the authenticated user's session info
+      responses:
+        "200":
+          description: Session info for the bearer token's owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/me/uuid:
+    get:
+      operationId: getMyUuid
+      tags: [account]
+      summary: Return the authenticated user's UUID
+      description: |
+        Lightweight endpoint for mobile clients to verify their locally-stored
+        UUID matches the server-assigned value.
+      responses:
+        "200":
+          description: User UUID
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id]
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/is-developer:
+    get:
+      operationId: isDeveloper
+      tags: [account]
+      summary: Whether the authenticated user has the developer flag
+      responses:
+        "200":
+          description: Developer flag
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [is_developer]
+                properties:
+                  is_developer:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/config:
+    get:
+      operationId: getConfig
+      tags: [account]
+      summary: Application configuration (theme)
+      responses:
+        "200":
+          description: Config
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [theme]
+                properties:
+                  theme:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/mcp-config:
+    get:
+      operationId: getMcpConfig
+      tags: [account]
+      summary: MCP (Model Context Protocol) connection details
+      description: |
+        Returns server URL, Claude Desktop config snippet, and instructions
+        for hooking the user's account to an MCP client. The raw API key
+        must be obtained separately via `POST /api/v1/api-keys`.
+      responses:
+        "200":
+          description: MCP configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/change-password:
+    post:
+      operationId: changePassword
+      tags: [auth]
+      summary: Change password for the authenticated user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOnly"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # Self-service signup and email-based password reset were removed in Home
+  # Edition (no Mailgun / email flows). Accounts are provisioned and passwords
+  # reset via the admin.py CLI; the authenticated in-app change-password
+  # endpoint (below) remains.
+
+  # ============================================================================
+  # 2FA
+  # ============================================================================
+
+  /api/v1/2fa/status:
+    get:
+      operationId: get2faStatus
+      tags: [2fa]
+      summary: Current 2FA enrollment status for the authenticated user
+      responses:
+        "200":
+          description: 2FA status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwoFactorStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/2fa/setup:
+    post:
+      operationId: setup2fa
+      tags: [2fa]
+      summary: Begin 2FA enrollment — return secret + otpauth URI
+      description: |
+        Generates a TOTP secret and stores it in pending state. The user
+        must then call `/api/v1/2fa/verify-setup` with a code generated
+        from the secret before 2FA is actually enabled.
+      responses:
+        "200":
+          description: TOTP secret and otpauth URI
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret, uri, message]
+                properties:
+                  secret:
+                    type: string
+                  uri:
+                    type: string
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/2fa/verify-setup:
+    post:
+      operationId: verify2faSetup
+      tags: [2fa]
+      summary: Confirm 2FA setup with a TOTP code — enables 2FA, returns backup codes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TwoFactorCodeOnly"
+      responses:
+        "200":
+          description: 2FA enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwoFactorBackupCodesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/2fa/disable:
+    post:
+      operationId: disable2fa
+      tags: [2fa]
+      summary: Disable 2FA (password-confirmed)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordConfirm"
+      responses:
+        "200":
+          description: 2FA disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/2fa/regenerate-backup-codes:
+    post:
+      operationId: regenerate2faBackupCodes
+      tags: [2fa]
+      summary: Generate a fresh set of backup codes — invalidates the old set
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordConfirm"
+      responses:
+        "200":
+          description: New backup codes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwoFactorBackupCodesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/2fa/verify:
+    post:
+      operationId: verify2faLogin
+      tags: [2fa]
+      summary: Complete login by verifying a 2FA code
+      description: |
+        Called after `/login` returns `requires_2fa: true`. Accepts the
+        `pending_2fa_token` from that response plus the user's current TOTP
+        code or one of their backup codes. Returns a real session token
+        on success.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pending_2fa_token, code]
+              properties:
+                pending_2fa_token:
+                  type: string
+                code:
+                  type: string
+      responses:
+        "200":
+          description: 2FA verified, session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwoFactorVerifyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ============================================================================
+  # API KEYS
+  # ============================================================================
+
+  /api/v1/api-keys:
+    post:
+      operationId: createApiKey
+      tags: [api-keys]
+      summary: Create a long-lived API key (raw value returned ONCE)
+      description: |
+        The raw key is returned exactly once in this response and never
+        stored. The caller must persist it immediately — subsequent list
+        calls return only `key_prefix`, never the full key.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  maxLength: 100
+                  description: Human-readable label (default "MCP")
+      responses:
+        "201":
+          description: Key created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreated"
+          links:
+            revoke:
+              operationId: revokeApiKey
+              parameters:
+                key_id: "$response.body#/id"
+              description: |
+                The `id` returned in this response is the `key_id` for the
+                revoke endpoint. Schemathesis uses this link to drive the
+                create→revoke workflow during stateful fuzzing.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+    get:
+      operationId: listApiKeys
+      tags: [api-keys]
+      summary: List the user's active API keys (metadata only)
+      responses:
+        "200":
+          description: Active API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKeyMetadata"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/api-keys/{key_id}:
+    delete:
+      operationId: revokeApiKey
+      tags: [api-keys]
+      summary: Revoke an API key (soft delete)
+      parameters:
+        - $ref: "#/components/parameters/keyId"
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOnly"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ============================================================================
+  # HEALTH INPUTS (medications, supplements)
+  # ============================================================================
+
+  /api/v1/health-inputs:
+    get:
+      operationId: listHealthInputs
+      tags: [health-inputs]
+      summary: List the user's meds + supplements (paginated)
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated health inputs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthInputList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/QueryTimeout"
+
+    post:
+      operationId: createHealthInput
+      tags: [health-inputs]
+      summary: Create a health input
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HealthInputCreate"
+      responses:
+        "201":
+          description: Health input created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedId"
+          links:
+            update:
+              operationId: updateHealthInput
+              parameters:
+                input_id: "$response.body#/id"
+            delete:
+              operationId: deleteHealthInput
+              parameters:
+                input_id: "$response.body#/id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/QueryTimeout"
+
+  /api/v1/health-inputs/{input_id}:
+    put:
+      operationId: updateHealthInput
+      tags: [health-inputs]
+      summary: Update a health input (partial — unspecified fields preserved)
+      parameters:
+        - $ref: "#/components/parameters/inputId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HealthInputUpdate"
+      responses:
+        "200":
+          description: Health input updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/QueryTimeout"
+
+    delete:
+      operationId: deleteHealthInput
+      tags: [health-inputs]
+      summary: Delete a health input
+      parameters:
+        - $ref: "#/components/parameters/inputId"
+      responses:
+        "200":
+          description: Health input deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ============================================================================
+  # VITALS — BLOOD PRESSURE
+  # ============================================================================
+
+  /api/v1/blood-pressure:
+    get:
+      operationId: listBloodPressure
+      tags: [vitals]
+      summary: List blood pressure readings (paginated, optional date range)
+      parameters:
+        - $ref: "#/components/parameters/startDate"
+        - $ref: "#/components/parameters/endDate"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated readings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BloodPressureList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      operationId: logBloodPressure
+      tags: [vitals]
+      summary: Log a blood pressure reading
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BloodPressureCreate"
+      responses:
+        "201":
+          description: Reading logged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/blood-pressure/{reading_id}:
+    delete:
+      operationId: deleteBloodPressure
+      tags: [vitals]
+      summary: Delete a blood pressure reading
+      parameters:
+        - $ref: "#/components/parameters/readingId"
+      responses:
+        "200":
+          description: Reading deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ============================================================================
+  # VITALS — TEMPERATURE
+  # ============================================================================
+
+  /api/v1/temperature:
+    get:
+      operationId: listTemperature
+      tags: [vitals]
+      summary: List temperature readings (paginated, optional date range)
+      parameters:
+        - $ref: "#/components/parameters/startDate"
+        - $ref: "#/components/parameters/endDate"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated readings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemperatureList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      operationId: logTemperature
+      tags: [vitals]
+      summary: Log a temperature reading
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemperatureCreate"
+      responses:
+        "201":
+          description: Reading logged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ============================================================================
+  # VITALS — WEIGHT
+  # ============================================================================
+
+  /api/v1/weight:
+    get:
+      operationId: listWeight
+      tags: [vitals]
+      summary: List weight readings (paginated, optional date range)
+      parameters:
+        - $ref: "#/components/parameters/startDate"
+        - $ref: "#/components/parameters/endDate"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated readings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeightList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      operationId: logWeight
+      tags: [vitals]
+      summary: Log a weight reading
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeightCreate"
+      responses:
+        "201":
+          description: Reading logged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/weight/{weight_id}:
+    delete:
+      operationId: deleteWeight
+      tags: [vitals]
+      summary: Delete a weight reading
+      parameters:
+        - $ref: "#/components/parameters/weightId"
+      responses:
+        "200":
+          description: Reading deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/health-metrics/{metric_id}:
+    delete:
+      operationId: deleteHealthMetric
+      tags: [vitals]
+      summary: Delete any `health_metrics` row by id (temperature, weight, etc.)
+      description: |
+        Generic delete for the `health_metrics` table. The type-specific
+        `/api/v1/weight/{id}` and (currently absent) `/api/v1/temperature/{id}`
+        deletes are convenience wrappers; this endpoint accepts any metric_id
+        belonging to the caller.
+      parameters:
+        - $ref: "#/components/parameters/metricId"
+      responses:
+        "200":
+          description: Row deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ============================================================================
+  # VITALS — OBSERVATIONS
+  # ============================================================================
+
+  /api/v1/observations:
+    get:
+      operationId: listObservations
+      tags: [vitals]
+      summary: List free-text observations (paginated)
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated observations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObservationList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      operationId: createObservation
+      tags: [vitals]
+      summary: Create a free-text observation (server-side embedded in background)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ObservationCreate"
+      responses:
+        "201":
+          description: Observation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedId"
+          links:
+            update:
+              operationId: updateObservation
+              parameters:
+                obs_id: "$response.body#/id"
+            patch:
+              operationId: patchObservation
+              parameters:
+                obs_id: "$response.body#/id"
+            delete:
+              operationId: deleteObservation
+              parameters:
+                obs_id: "$response.body#/id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/observations/{obs_id}:
+    put:
+      operationId: updateObservation
+      tags: [vitals]
+      summary: Replace an observation's text and timestamp (re-embeds in background)
+      parameters:
+        - $ref: "#/components/parameters/obsId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ObservationCreate"
+      responses:
+        "200":
+          description: Observation updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    patch:
+      operationId: patchObservation
+      tags: [vitals]
+      summary: Toggle the mental-health flag on an observation
+      parameters:
+        - $ref: "#/components/parameters/obsId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mental_health_flag]
+              properties:
+                mental_health_flag:
+                  type: boolean
+      responses:
+        "200":
+          description: Observation updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: deleteObservation
+      tags: [vitals]
+      summary: Delete an observation
+      parameters:
+        - $ref: "#/components/parameters/obsId"
+      responses:
+        "200":
+          description: Observation deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Session token returned by `/api/v1/login`, or a long-lived API key
+        created via `/api/v1/api-keys`. Both are accepted on the same header.
+
+  parameters:
+    limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size (clamped server-side; default varies by endpoint).
+      schema:
+        type: integer
+        minimum: 1
+    offset:
+      name: offset
+      in: query
+      required: false
+      description: Page offset (0-based).
+      schema:
+        type: integer
+        minimum: 0
+    startDate:
+      name: start_date
+      in: query
+      required: false
+      description: Inclusive lower bound on the measurement date (YYYY-MM-DD).
+      schema:
+        type: string
+        format: date
+    endDate:
+      name: end_date
+      in: query
+      required: false
+      description: Inclusive upper bound on the measurement date (YYYY-MM-DD).
+      schema:
+        type: string
+        format: date
+    keyId:
+      name: key_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    inputId:
+      name: input_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    readingId:
+      name: reading_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    weightId:
+      name: weight_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    metricId:
+      name: metric_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    obsId:
+      name: obs_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    # --- Generic envelopes -------------------------------------------------
+
+    HealthzResponse:
+      type: object
+      required: [service, version, environment, server_time, uptime_seconds, checks]
+      properties:
+        service:
+          type: string
+          enum: [minowa-api]
+          description: Distinguishes our response from a CDN/proxy error page
+        version:
+          type: string
+          description: Git short SHA baked at build time; `"unknown"` if unset
+        environment:
+          type: string
+          description: Value of DEPLOY_ENV (e.g. `prod`, `pilot`, `testing`)
+        server_time:
+          type: string
+          format: date-time
+          description: UTC ISO 8601 (second precision, trailing `Z`)
+        uptime_seconds:
+          type: integer
+          minimum: 0
+        checks:
+          type: object
+          required: [database, embedding_upstream]
+          properties:
+            database:
+              $ref: "#/components/schemas/HealthzCheck"
+            embedding_upstream:
+              $ref: "#/components/schemas/HealthzCheck"
+
+    HealthzCheck:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        error:
+          type: string
+          description: One-line cause; present iff `ok` is false
+        latency_ms:
+          type: number
+          description: Optional, currently surfaced for `database`
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: |
+            Machine-readable error code on selected paths (e.g.
+            `DUPLICATE_NAME`, `QUERY_TIMEOUT`). Not present on all errors.
+
+    SuccessOnly:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+
+    SuccessMessage:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          const: true
+        message:
+          type: string
+
+    MessageEnvelope:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        success:
+          type: boolean
+
+    CreatedId:
+      type: object
+      required: [id, message]
+      properties:
+        id:
+          type: string
+          format: uuid
+        message:
+          type: string
+
+    Pagination:
+      type: object
+      required: [total, limit, offset, has_more]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+        has_more:
+          type: boolean
+
+    # --- Auth --------------------------------------------------------------
+
+    LoginRequest:
+      type: object
+      required: [password]
+      description: |
+        One of `email`, `username`, or `identifier` must be supplied. `identifier`
+        is a legacy alias accepted for backwards compatibility — new clients
+        should use `email`.
+      properties:
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        identifier:
+          type: string
+          description: Legacy alias accepted for backwards compatibility
+        password:
+          type: string
+          minLength: 1
+
+    LoginSuccess:
+      type: object
+      required: [success, token, user_id, tenant_id, email]
+      properties:
+        success:
+          type: boolean
+          const: true
+        token:
+          type: string
+          description: Session token for Bearer auth on subsequent requests
+        user_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: integer
+        email:
+          type: string
+          format: email
+        username:
+          type:
+            - string
+            - "null"
+        display_name:
+          type:
+            - string
+            - "null"
+        database:
+          type: string
+        created_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+
+    LoginRequires2FA:
+      type: object
+      required: [success, requires_2fa, pending_2fa_token, message]
+      properties:
+        success:
+          type: boolean
+          const: false
+        requires_2fa:
+          type: boolean
+          const: true
+        pending_2fa_token:
+          type: string
+        message:
+          type: string
+
+    SessionInfo:
+      type: object
+      required: [user_id, tenant_id, username, database, is_developer]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Alias of `user_id` (legacy field name retained for clients).
+        user_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: integer
+        email:
+          type:
+            - string
+            - "null"
+          format: email
+        username:
+          type:
+            - string
+            - "null"
+        database:
+          type: string
+        created_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        is_developer:
+          type: boolean
+
+    ChangePasswordRequest:
+      type: object
+      required: [new_password]
+      description: |
+        At least one of `current_password` or `old_password` (legacy alias)
+        must be supplied along with `new_password`.
+      properties:
+        current_password:
+          type: string
+        old_password:
+          type: string
+          description: Legacy alias for `current_password`
+        new_password:
+          type: string
+          minLength: 8
+
+    McpConfig:
+      type: object
+      required: [database_name, mcp_user, host, port, connection_string, claude_desktop_config, note]
+      properties:
+        database_name:
+          type: string
+        mcp_user:
+          type: string
+        host:
+          type: string
+        port:
+          type: string
+        connection_string:
+          type: string
+        claude_desktop_config:
+          type: object
+          additionalProperties: true
+        note:
+          type: string
+
+    # --- 2FA ---------------------------------------------------------------
+
+    TwoFactorStatus:
+      type: object
+      required: [enabled, has_secret]
+      properties:
+        enabled:
+          type: boolean
+        has_secret:
+          type: boolean
+        enabled_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        backup_codes_remaining:
+          type: integer
+          minimum: 0
+          description: Present only when `enabled` is true.
+
+    TwoFactorCodeOnly:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+
+    PasswordConfirm:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+
+    TwoFactorBackupCodesResponse:
+      type: object
+      required: [success, message, backup_codes]
+      properties:
+        success:
+          type: boolean
+          const: true
+        message:
+          type: string
+        backup_codes:
+          type: array
+          items:
+            type: string
+
+    TwoFactorVerifyResponse:
+      type: object
+      required: [success, token, user_id, email, tenant_id, database]
+      properties:
+        success:
+          type: boolean
+          const: true
+        token:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type:
+            - string
+            - "null"
+        tenant_id:
+          type: integer
+        database:
+          type: string
+        backup_code_used:
+          type: boolean
+        backup_codes_remaining:
+          type: integer
+          minimum: 0
+        warning:
+          type: string
+
+    # --- API keys ----------------------------------------------------------
+
+    ApiKeyCreated:
+      type: object
+      required: [id, key, label, key_prefix, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+          description: |
+            Raw key value. Returned exactly once at creation time — clients
+            MUST persist it immediately. Subsequent list calls return only
+            `key_prefix`.
+        label:
+          type: string
+        key_prefix:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    ApiKeyMetadata:
+      type: object
+      required: [id, key_prefix, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key_prefix:
+          type: string
+        device_name:
+          type:
+            - string
+            - "null"
+          description: |
+            Human-readable label stored at creation time. Note: this is the
+            same value passed in the create-request `label` field — the
+            implementation calls it `device_name` on read.
+        token_type:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+
+    # --- Health inputs -----------------------------------------------------
+
+    HealthInputType:
+      type: string
+      enum: [medication, supplement, other]
+
+    FrequentStatus:
+      type:
+        - string
+        - "null"
+      enum: [detected, sticky, null]
+
+    DosesPerDay:
+      type:
+        - integer
+        - "null"
+      enum: [-1, 1, 2, 3, 4, null]
+      description: |
+        -1 means "as needed" (PRN); 1–4 are explicit daily dose counts;
+        null means unspecified.
+
+    HealthInput:
+      type: object
+      required: [id, name, input_type]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        input_type:
+          $ref: "#/components/schemas/HealthInputType"
+        default_dosage:
+          type:
+            - string
+            - "null"
+        default_unit:
+          type:
+            - string
+            - "null"
+        brand:
+          type:
+            - string
+            - "null"
+        form:
+          type:
+            - string
+            - "null"
+        is_active:
+          type: boolean
+        take_with_food:
+          type: boolean
+        notes:
+          type:
+            - string
+            - "null"
+        instructions:
+          type:
+            - string
+            - "null"
+        doses_per_day:
+          $ref: "#/components/schemas/DosesPerDay"
+        frequent_status:
+          $ref: "#/components/schemas/FrequentStatus"
+        category:
+          type:
+            - string
+            - "null"
+          description: |
+            Free-text category persisted under `custom_fields.category` in the
+            DB; flattened to a top-level field on read.
+
+    HealthInputCreate:
+      type: object
+      required: [name, input_type]
+      properties:
+        name:
+          type: string
+        input_type:
+          $ref: "#/components/schemas/HealthInputType"
+        default_dosage:
+          type: string
+        default_unit:
+          type: string
+        brand:
+          type: string
+        form:
+          type: string
+        is_active:
+          type: boolean
+        take_with_food:
+          type: boolean
+        notes:
+          type: string
+        doses_per_day:
+          $ref: "#/components/schemas/DosesPerDay"
+        frequent_status:
+          $ref: "#/components/schemas/FrequentStatus"
+        category:
+          type: string
+        timeframe_id:
+          type: string
+          format: uuid
+          description: |
+            Optional link to a `timeframes` row — if set, server projects a
+            reminder for this input at the configured time.
+
+    HealthInputUpdate:
+      type: object
+      description: |
+        Partial update. Unspecified fields preserve their existing value.
+        Explicit `null` on `timeframe_id` clears the reminder projection.
+      properties:
+        name:
+          type: string
+        input_type:
+          $ref: "#/components/schemas/HealthInputType"
+        default_dosage:
+          type:
+            - string
+            - "null"
+        default_unit:
+          type:
+            - string
+            - "null"
+        brand:
+          type:
+            - string
+            - "null"
+        form:
+          type:
+            - string
+            - "null"
+        is_active:
+          type: boolean
+        take_with_food:
+          type: boolean
+        notes:
+          type:
+            - string
+            - "null"
+        instructions:
+          type:
+            - string
+            - "null"
+        doses_per_day:
+          $ref: "#/components/schemas/DosesPerDay"
+        frequent_status:
+          $ref: "#/components/schemas/FrequentStatus"
+        category:
+          type:
+            - string
+            - "null"
+        timeframe_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+
+    HealthInputList:
+      type: object
+      required: [entries, pagination]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthInput"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # --- Vitals: blood pressure -------------------------------------------
+
+    BloodPressureReading:
+      type: object
+      required: [id, systolic, diastolic, timestamp]
+      properties:
+        id:
+          type: string
+          format: uuid
+        systolic:
+          type: integer
+          minimum: 40
+          maximum: 300
+        diastolic:
+          type: integer
+          minimum: 20
+          maximum: 200
+        pulse:
+          type:
+            - integer
+            - "null"
+          minimum: 20
+          maximum: 250
+        timestamp:
+          type: string
+          format: date-time
+          description: |
+            UTC ISO-8601 timestamp. Backed by the DB column `measured_at`
+            (renamed on the wire for consistency with other vitals endpoints).
+
+    BloodPressureCreate:
+      type: object
+      required: [timestamp, systolic, diastolic]
+      properties:
+        timestamp:
+          type: string
+          description: |
+            Local datetime string in the user's home timezone. Server
+            converts to UTC before storing.
+        systolic:
+          type: integer
+          minimum: 40
+          maximum: 300
+        diastolic:
+          type: integer
+          minimum: 20
+          maximum: 200
+        heart_rate:
+          type:
+            - integer
+            - "null"
+          minimum: 20
+          maximum: 250
+          description: |
+            Pulse at the time of the reading. Stored as `pulse` in the DB
+            and read back as `pulse` on `GET /blood-pressure` — the write
+            side calls it `heart_rate` for legacy reasons.
+
+    BloodPressureList:
+      type: object
+      required: [entries, pagination]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/BloodPressureReading"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # --- Vitals: temperature ----------------------------------------------
+
+    TemperatureReading:
+      type: object
+      required: [id, temperature, timestamp]
+      properties:
+        id:
+          type: string
+          format: uuid
+        temperature:
+          type: number
+        unit:
+          type:
+            - string
+            - "null"
+        timestamp:
+          type:
+            - string
+            - "null"
+          format: date-time
+
+    TemperatureCreate:
+      type: object
+      required: [timestamp, temperature]
+      properties:
+        timestamp:
+          type: string
+          description: Local datetime string; server converts to UTC.
+        temperature:
+          type: number
+        unit:
+          type: string
+          description: Defaults to `F` if omitted.
+
+    TemperatureList:
+      type: object
+      required: [entries, pagination]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/TemperatureReading"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # --- Vitals: weight ----------------------------------------------------
+
+    WeightReading:
+      type: object
+      required: [id, weight, timestamp]
+      properties:
+        id:
+          type: string
+          format: uuid
+        weight:
+          type: number
+        unit:
+          type:
+            - string
+            - "null"
+        timestamp:
+          type:
+            - string
+            - "null"
+          format: date-time
+
+    WeightCreate:
+      type: object
+      required: [timestamp, weight]
+      properties:
+        timestamp:
+          type: string
+          description: Local datetime string; server converts to UTC.
+        weight:
+          type: number
+        unit:
+          type: string
+          description: Defaults to `lbs` if omitted.
+
+    WeightList:
+      type: object
+      required: [entries, pagination]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeightReading"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # --- Vitals: observations ---------------------------------------------
+
+    Observation:
+      type: object
+      required: [id, observation, source_type, mental_health_flag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        observation:
+          type: string
+          description: |
+            Free-text body of the observation. Backed by the `content` column
+            in the DB; renamed on the wire to disambiguate from generic
+            content fields.
+        timestamp:
+          type:
+            - string
+            - "null"
+          format: date-time
+        source_type:
+          type: string
+          description: |
+            Origin tag (e.g. `text`, `voice`). Backed by the `category`
+            column. Defaults to `text` on create when omitted.
+        mental_health_flag:
+          type: boolean
+
+    ObservationCreate:
+      type: object
+      required: [observation]
+      properties:
+        observation:
+          type: string
+        timestamp:
+          type: string
+          description: |
+            Local datetime string; server converts to UTC. Defaults to "now"
+            when omitted.
+        source_type:
+          type: string
+          description: Defaults to `text` if omitted.
+        mental_health_flag:
+          type: boolean
+
+    ObservationList:
+      type: object
+      required: [entries, pagination]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/Observation"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+  responses:
+    BadRequest:
+      description: Invalid request body or query parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Target resource does not exist or is not owned by the caller
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Uniqueness violation (e.g. duplicate name)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    QueryTimeout:
+      description: Query exceeded the server-side time budget and was cancelled
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

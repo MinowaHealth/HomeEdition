@@ -1,0 +1,163 @@
+# docker-compose.local.yml — Home Edition household stack (THE canonical stack)
+#
+# The full appliance on a single bridge network: pgvector + webapp + UserMCP.
+# Document OCR runs in-process inside webapp; Ollama runs on the host for
+# embeddings. No broker, no rate-limit store, no observability stack.
+#
+# This is the ONLY compose file for the appliance. Local install and VM /
+# appliance install are the same file — they differ by one env var:
+#   BIND_ADDR=127.0.0.1  (default) — local install, loopback only
+#   BIND_ADDR=0.0.0.0               — VM / appliance, reachable on the LAN
+# BIND_ADDR governs the web UI and UserMCP. Set it (plus TZ) in local.env.
+#
+# Postgres has its OWN knob, PG_BIND_ADDR, defaulting to 127.0.0.1 and
+# INDEPENDENT of BIND_ADDR — opening the app to the LAN never auto-exposes the
+# raw database (a direct DB connection bypasses all app-level user_id scoping).
+# Exposing Postgres is a deliberate opt-in: set PG_BIND_ADDR=0.0.0.0 in
+# local.env — see PostgresAccess.md for connecting an external tool / Postgres MCP.
+#
+# Usage (run from repo root, NOT from HowToDeploy/):
+#   docker compose --project-directory . -f HowToDeploy/docker-compose.local.yml --env-file local.env up -d
+#   docker compose --project-directory . -f HowToDeploy/docker-compose.local.yml --env-file local.env down -v  # full reset
+#   docker compose --project-directory . -f HowToDeploy/docker-compose.local.yml --env-file local.env up -d --build webapp  # rebuild
+#
+# Test credentials (created by init scripts — all passwords: Password2026):
+#   User app:  http://localhost/login   test@example.com (dev) or any seeded household login
+#
+# MCP server (Python, SSE transport):
+#   UserMCP:   http://localhost:13282  (SSE: GET /sse + POST /messages/)
+
+services:
+  # ===================== DATA LAYER =====================
+
+  # PostgreSQL 18 + pgvector (fresh DB on first start)
+  hb-local-postgres:
+    image: pgvector/pgvector:pg18
+    container_name: hb-local-postgres
+    restart: unless-stopped
+    ports:
+      # Loopback-only by default, INDEPENDENT of BIND_ADDR. To reach Postgres
+      # from another host (or a Postgres MCP), set PG_BIND_ADDR=0.0.0.0 in
+      # local.env — see PostgresAccess.md. Exposing the app (BIND_ADDR) does
+      # not expose the DB; this knob is the only thing that does.
+      - "${PG_BIND_ADDR:-127.0.0.1}:5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: healthv10
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      TZ: ${TZ:-America/Los_Angeles}
+      PGTZ: ${TZ:-America/Los_Angeles}
+    volumes:
+      # pg18+ stores the cluster in a major-versioned subdir, so the volume
+      # mounts at /var/lib/postgresql (not /…/data as it did on pg16). The
+      # 18+ image refuses to start if it finds a bare cluster at /…/data.
+      - hb-local-pgdata:/var/lib/postgresql
+      # SQL files mounted as reference data (not in initdb.d — won't auto-run)
+      - ./Infrastructure/init/docker-init-home/02-home_schema.sql:/schema/02-home_schema.sql:ro
+      - ./Infrastructure/init/docker-init-home/role/app-role-setup.sql:/schema/03-app-role-setup.sql:ro
+      # Init scripts (only our controlled scripts run)
+      - ./scripts/00-a-create-role.sh:/docker-entrypoint-initdb.d/00-a-create-role.sh
+      - ./scripts/local-init-db.sh:/docker-entrypoint-initdb.d/01-local-init.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d healthv10"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - minowa
+
+  # ===================== APPLICATION LAYER =====================
+
+  # User Web App (UserApp/webapp — Gunicorn 4w×2t)
+  webapp:
+    build:
+      context: ./UserApp/webapp
+      dockerfile: Dockerfile
+    container_name: hb-local-webapp
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:80:80"
+    environment:
+      DB_HOST: hb-local-postgres
+      DB_PORT: "5432"
+      DB_NAME: healthv10
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      FLASK_ENV: ${FLASK_ENV}
+      FLASK_LOG_LEVEL: ${FLASK_LOG_LEVEL}
+      SECRET_KEY: ${SECRET_KEY}
+      USERDOCS_STORAGE_PATH: /data/userdocs
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text-v2-moe:latest}
+      OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-30}
+    volumes:
+      - hb-local-userdocs:/data/userdocs
+      # Mount app files for live editing (restart container after Python changes)
+      - ./UserApp/webapp/app.py:/app/app.py:ro
+      - ./UserApp/webapp/auth.py:/app/auth.py:ro
+      - ./UserApp/webapp/db_manager.py:/app/db_manager.py:ro
+      - ./UserApp/webapp/garmin_worker.py:/app/garmin_worker.py:ro
+      - ./UserApp/webapp/healthkit_importer.py:/app/healthkit_importer.py:ro
+      - ./UserApp/webapp/healthkit_worker.py:/app/healthkit_worker.py:ro
+      - ./UserApp/webapp/nutrition_projection.py:/app/nutrition_projection.py:ro
+      - ./UserApp/webapp/utils.py:/app/utils.py:ro
+      - ./UserApp/webapp/logging_config.py:/app/logging_config.py:ro
+      - ./UserApp/webapp/logging_middleware.py:/app/logging_middleware.py:ro
+      - ./UserApp/webapp/routes:/app/routes:ro
+      - ./UserApp/webapp/ocr:/app/ocr:ro
+      - ./UserApp/webapp/index.html:/app/index.html:ro
+      - ./UserApp/webapp/shared:/app/shared:ro
+      - ./UserApp/webapp/templates:/app/templates:ro
+      - ./UserApp/admin.py:/app/admin.py:ro
+      - ./UserApp/scripts:/app/scripts:ro
+      - ./UserApp/logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      hb-local-postgres:
+        condition: service_healthy
+    networks:
+      - minowa
+
+  # User MCP Server
+  usermcp:
+    build:
+      context: ./UserMCP
+      dockerfile: Dockerfile
+    container_name: hb-local-usermcp
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:13282:13282"
+    # All values from local.env via ${VAR:-default}. Hardcode only container-internal names.
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://hb-local-webapp:80}
+      MCP_PORT: "${MCP_PORT:-13282}"
+      # Bind all interfaces inside the container so the host port mapping reaches us.
+      # (Code default in UserMCP/mcp_server.py is 127.0.0.1, which traps the service in the container.)
+      MCP_HOST: "0.0.0.0"
+      UVICORN_LOG_LEVEL: ${UVICORN_LOG_LEVEL:-info}
+    depends_on:
+      - webapp
+    networks:
+      - minowa
+
+  # Document OCR runs in-process inside webapp (Home Edition — no broker,
+  # no separate worker). See UserApp/webapp/ocr/.
+
+volumes:
+  hb-local-pgdata:
+    driver: local
+  hb-local-userdocs:
+    driver: local
+
+networks:
+  minowa:
+    # Pinned name (not project-prefixed) so optional side stacks — e.g.
+    # DesignMCP — can join it as an external network by a stable name.
+    name: minowa
+    driver: bridge

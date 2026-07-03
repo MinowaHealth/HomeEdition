@@ -1,0 +1,16 @@
+# Dependencies for the DataModel3 audit tooling.
+#
+# DataModel3 is never installed standalone — it always runs in the
+# repo .venv alongside the application services, and inherits psycopg
+# from their requirements.txt. This file only lists what's unique to
+# the audit scripts.
+#
+# Install into the repo .venv:
+#   .venv/bin/pip install -r DataModel3/requirements.txt
+#
+# Used by:
+#   code_query_audit.py  — Code SQL Usage Audit (sqlglot)
+#   compare_full.py      — Schema-vs-prod drift (psycopg — from app venv)
+#   unused_columns_audit.py — schema-column reachability (stdlib only)
+
+sqlglot>=30.6.0,<31

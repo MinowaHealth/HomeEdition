@@ -1,0 +1,24 @@
+# Allowed deltas between backend URL map and client-consumed-endpoints.json.
+#
+# Consumed by tests/contracts/test_endpoint_drift.py. Edit this file when a
+# legitimate divergence exists; the test will fail on any delta NOT listed here.
+#
+# backend_only: backend route exists, no client call site
+#   - cron / internal endpoints
+#   - admin endpoints (consumed by AdminApp, not patient/provider clients)
+#   - intentionally deprecated routes kept for one release cycle
+#
+# client_only: client call site exists, no backend route
+#   - client built ahead of backend (include due: date)
+#   - SHOULD be empty in steady state
+
+backend_only: []
+#  - method: POST
+#    path: /api/v1/internal/cron/refresh-frequent-inputs
+#    reason: "cron-invoked, no client should call this"
+
+client_only: []
+#  - method: GET
+#    path: /api/v1/foo
+#    reason: "client built ahead of backend"
+#    due: 2026-06-15

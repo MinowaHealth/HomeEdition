@@ -1,0 +1,973 @@
+"""
+UserDocs — Document management routes.
+
+Phase 0: Upload, list, detail, update metadata, soft-delete.
+Phase 3: Annotation CRUD (create, list, update, delete).
+"""
+from flask import Blueprint, request, jsonify, g, current_app, send_file, redirect
+from db_driver import sql
+from werkzeug.utils import secure_filename
+from datetime import datetime
+from pathlib import Path
+import hashlib
+import mimetypes
+import pytz
+import uuid
+import os
+
+from utils import (
+    require_auth,
+    get_db_connection,
+    get_user_id,
+    parse_pagination_params,
+    paginated_response,
+)
+import db_manager
+import analytics
+from .embedding_helpers import embed_field
+
+bp = Blueprint('documents', __name__, url_prefix='/api/v1')
+
+# 5 MB upload limit (plan scope boundary)
+MAX_DOCUMENT_SIZE = 5 * 1024 * 1024
+
+ALLOWED_MIME_PREFIXES = (
+    'application/pdf',
+    'image/',
+    'text/plain',
+)
+
+STORAGE_ROOT = Path(os.environ.get('USERDOCS_STORAGE_PATH', '/data/userdocs'))
+
+
+def _doc_storage_dir(tenant_id: int, user_id: str, doc_id: str) -> Path:
+    """Return the storage directory for a document: {root}/{tenant}/{user}/{doc}/"""
+    return STORAGE_ROOT / str(tenant_id) / str(user_id) / str(doc_id)
+
+
+def _is_allowed_mime(mime_type: str) -> bool:
+    """Check if the MIME type is in the allowed set."""
+    if not mime_type:
+        return False
+    return any(mime_type.startswith(prefix) for prefix in ALLOWED_MIME_PREFIXES)
+
+
+def _sha256_file(path: Path) -> str:
+    """Stream-hash a file on disk; returns hex digest."""
+    h = hashlib.sha256()
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(65536), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# ==================== UPLOAD ====================
+
+@bp.route('/documents/upload', methods=['POST'])
+@require_auth
+def upload_document():
+    """Upload a document file (multipart, 5 MB limit)."""
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+
+    file = request.files['file']
+    if file.filename == '' or file.filename is None:
+        return jsonify({'error': 'Empty filename'}), 400
+
+    # MIME type detection
+    safe_name = secure_filename(file.filename)
+    if not safe_name:
+        return jsonify({'error': 'Invalid filename'}), 400
+
+    mime_type = file.content_type or mimetypes.guess_type(safe_name)[0] or 'application/octet-stream'
+    if not _is_allowed_mime(mime_type):
+        return jsonify({'error': f'File type not allowed: {mime_type}'}), 415
+
+    # Size check (pre-save, from Content-Length header)
+    if request.content_length and request.content_length > MAX_DOCUMENT_SIZE:
+        return jsonify({'error': f'File too large (max {MAX_DOCUMENT_SIZE // (1024*1024)} MB)'}), 413
+
+    doc_id = uuid.uuid4()
+    doc_dir = _doc_storage_dir(tenant_id, user_id, str(doc_id))
+    doc_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine extension from original filename
+    _, ext = os.path.splitext(safe_name)
+    stored_name = f"original{ext}" if ext else "original"
+    file_path = doc_dir / stored_name
+
+    try:
+        file.save(str(file_path))
+    except Exception as e:
+        current_app.logger.error("Document upload save failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Failed to save file'}), 500
+
+    # Post-save size validation (defense-in-depth)
+    file_size = file_path.stat().st_size
+    if file_size > MAX_DOCUMENT_SIZE:
+        file_path.unlink(missing_ok=True)
+        return jsonify({'error': f'File too large (max {MAX_DOCUMENT_SIZE // (1024*1024)} MB)'}), 413
+
+    if file_size == 0:
+        file_path.unlink(missing_ok=True)
+        return jsonify({'error': 'Empty file'}), 400
+
+    # Optional metadata from form fields
+    title = request.form.get('title') or safe_name
+    category = request.form.get('category')
+    requested_folder_id = request.form.get('folder_id') or None
+
+    # Determine OCR status — text PDFs don't need OCR (Phase 2 will refine)
+    ocr_status = 'pending'
+    if mime_type == 'text/plain':
+        ocr_status = 'not_needed'
+
+    # Compute content hash on the saved bytes (integrity + dedup signal).
+    try:
+        sha256 = _sha256_file(file_path)
+    except OSError as e:
+        current_app.logger.error("SHA256 compute failed for %s: %s", file_path, e)
+        file_path.unlink(missing_ok=True)
+        return jsonify({'error': 'Failed to hash file'}), 500
+
+    now = datetime.now(pytz.utc)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Resolve destination folder. Caller-supplied folder_id must belong to
+        # the user and be live; otherwise fall back to the system 'Documents' folder.
+        folder_id = None
+        if requested_folder_id:
+            cur.execute("""
+                SELECT id FROM document_folders
+                WHERE tenant_id = %s AND user_id = %s AND id = %s AND deleted_at IS NULL
+            """, (tenant_id, str(user_id), requested_folder_id))
+            row = cur.fetchone()
+            if not row:
+                cur.close()
+                conn.close()
+                file_path.unlink(missing_ok=True)
+                return jsonify({'error': 'Folder not found'}), 404
+            folder_id = row['id']
+        else:
+            cur.execute("""
+                SELECT id FROM document_folders
+                WHERE tenant_id = %s AND user_id = %s
+                  AND is_system = TRUE AND name = 'Documents'
+                  AND deleted_at IS NULL
+                LIMIT 1
+            """, (tenant_id, str(user_id)))
+            row = cur.fetchone()
+            if not row:
+                cur.close()
+                conn.close()
+                file_path.unlink(missing_ok=True)
+                current_app.logger.error("Default Documents folder missing for user %s", user_id)
+                return jsonify({'error': 'Default folder missing'}), 500
+            folder_id = row['id']
+
+        cur.execute("""
+            INSERT INTO documents
+                (tenant_id, id, user_id, folder_id, filename, mime_type, file_size_bytes,
+                 file_path, sha256, source, ocr_status, title, category, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'upload', %s, %s, %s, %s, %s)
+            RETURNING id, folder_id, filename, mime_type, file_size_bytes, sha256,
+                      source, ocr_status, quality_label, title, category, tags, created_at
+        """, (
+            tenant_id, str(doc_id), str(user_id), folder_id, safe_name, mime_type, file_size,
+            str(file_path), sha256, ocr_status, title, category, now, now
+        ))
+
+        doc = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        if not doc:
+            return jsonify({'error': 'Upload failed'}), 500
+
+        doc['id'] = str(doc['id'])
+        if doc.get('folder_id'):
+            doc['folder_id'] = str(doc['folder_id'])
+        if doc.get('created_at'):
+            doc['created_at'] = doc['created_at'].isoformat()
+
+        analytics.capture('document_uploaded', {'mime_type': mime_type})
+
+        # OCR runs in-process (Home Edition — no broker). A background daemon
+        # thread does render → Tesseract → page write → best-effort embed, so
+        # the upload returns immediately and the client polls ocr_status until
+        # 'complete' (unchanged contract from the old queue pipeline).
+        if ocr_status == 'pending':
+            from background import fire_and_forget
+            from ocr import process_document_inline
+            fire_and_forget(
+                process_document_inline,
+                tenant_id, str(user_id), str(doc_id), str(file_path),
+            )
+
+        current_app.logger.info("Document uploaded: id=%s filename=%s size=%d user=%s",
+                                doc_id, safe_name, file_size, user_id)
+        return jsonify(doc), 201
+
+    except Exception as e:
+        # Clean up file on DB failure
+        file_path.unlink(missing_ok=True)
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill('/documents/upload', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("Document upload DB insert failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Failed to save document record'}), 500
+
+
+# ==================== LIST ====================
+
+@bp.route('/documents', methods=['GET'])
+@require_auth
+def list_documents():
+    """List a paginated page of the user's documents (excludes soft-deleted).
+
+    Optional ?folder_id=<uuid> filter scopes the listing to one folder.
+    Updated 2026-04-11 to match the spec's reference pagination shape:
+    single-query count(*) OVER() instead of a separate COUNT query, and
+    the nested {documents, pagination: {...}} envelope. This is a breaking
+    change for any client reading response['total'] directly — none known
+    at retrofit time.
+    """
+    user_id = get_user_id()
+    limit, offset = parse_pagination_params()
+    folder_filter = request.args.get('folder_id')
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        if folder_filter:
+            cur.execute("""
+                SELECT count(*) OVER() AS _total,
+                       id, folder_id, filename, mime_type, file_size_bytes, sha256,
+                       source, ocr_status, quality_label, page_count, title,
+                       category, tags, storage_tier, created_at, updated_at
+                FROM documents
+                WHERE user_id = %s AND deleted_at IS NULL AND folder_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (user_id, folder_filter, limit, offset))
+        else:
+            cur.execute("""
+                SELECT count(*) OVER() AS _total,
+                       id, folder_id, filename, mime_type, file_size_bytes, sha256,
+                       source, ocr_status, quality_label, page_count, title,
+                       category, tags, storage_tier, created_at, updated_at
+                FROM documents
+                WHERE user_id = %s AND deleted_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (user_id, limit, offset))
+
+        docs = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        total = docs[0]['_total'] if docs else 0
+        for doc in docs:
+            doc.pop('_total', None)
+            doc['id'] = str(doc['id'])
+            if doc.get('folder_id'):
+                doc['folder_id'] = str(doc['folder_id'])
+            if doc.get('created_at'):
+                doc['created_at'] = doc['created_at'].isoformat()
+            if doc.get('updated_at'):
+                doc['updated_at'] = doc['updated_at'].isoformat()
+
+        return jsonify(paginated_response(docs, total, limit, offset, key='entries'))
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill('/documents', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("GET /documents failed: %s", e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== DETAIL ====================
+
+@bp.route('/documents/<doc_id>', methods=['GET'])
+@require_auth
+def get_document(doc_id):
+    """Get document detail including page list."""
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT id, folder_id, filename, mime_type, file_size_bytes, sha256,
+                   source, ocr_status, quality_label, page_count, title, category,
+                   tags, ocr_text_full, storage_tier, created_at, updated_at
+            FROM documents
+            WHERE tenant_id = %s AND user_id = %s AND id = %s AND deleted_at IS NULL
+        """, (tenant_id, user_id, doc_id,))
+
+        doc = cur.fetchone()
+        if not doc:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Document not found'}), 404
+
+        # Fetch pages if any exist
+        cur.execute("""
+            SELECT id, page_number, ocr_text, ocr_confidence, quality_label, image_path
+            FROM document_pages
+            WHERE document_id = %s AND user_id = %s
+            ORDER BY page_number
+        """, (doc_id, user_id))
+
+        pages = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        doc['id'] = str(doc['id'])
+        if doc.get('folder_id'):
+            doc['folder_id'] = str(doc['folder_id'])
+        if doc.get('created_at'):
+            doc['created_at'] = doc['created_at'].isoformat()
+        if doc.get('updated_at'):
+            doc['updated_at'] = doc['updated_at'].isoformat()
+
+        for page in pages:
+            page['id'] = str(page['id'])
+
+        doc['pages'] = pages
+        return jsonify(doc)
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(f'/documents/{doc_id}', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("GET /documents/%s failed: %s", doc_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== DOWNLOAD ====================
+
+@bp.route('/documents/<doc_id>/download', methods=['GET'])
+@require_auth
+def download_document(doc_id):
+    """Download the original document file.
+
+    Serves from local disk when available. Falls back to a presigned URL
+    redirect (302) for remote-only documents. Supports ?proxy=1 for
+    clients that can't follow redirects.
+    """
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT file_path, filename, mime_type, sha256,
+                   storage_tier, remote_key
+            FROM documents
+            WHERE tenant_id = %s AND user_id = %s AND id = %s AND deleted_at IS NULL
+        """, (tenant_id, user_id, doc_id,))
+
+        doc = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not doc:
+            return jsonify({'error': 'Document not found'}), 404
+
+        storage_tier = doc.get('storage_tier', 'local')
+
+        # Local copy available — serve directly (fastest path)
+        if storage_tier in ('local', 'both') and doc['file_path']:
+            file_path = Path(doc['file_path'])
+            if file_path.exists():
+                # Integrity check: recompute and compare to stored sha256.
+                # Mismatch is logged but does not block the download (the
+                # file on disk is still what the user asked for) — surfacing
+                # this via metrics/alerting is Phase 3 work.
+                stored_sha = doc.get('sha256')
+                if stored_sha:
+                    try:
+                        actual_sha = _sha256_file(file_path)
+                        if actual_sha != stored_sha:
+                            current_app.logger.error(
+                                "SHA256 mismatch on download: doc=%s user=%s stored=%s actual=%s",
+                                doc_id, user_id, stored_sha, actual_sha
+                            )
+                    except OSError as e:
+                        current_app.logger.warning(
+                            "SHA256 verify skipped (IO error) doc=%s: %s", doc_id, e
+                        )
+                return send_file(
+                    str(file_path),
+                    mimetype=doc['mime_type'],
+                    as_attachment=True,
+                    download_name=doc['filename']
+                )
+
+        # Remote only — presigned URL redirect or proxy
+        if storage_tier in ('remote', 'both') and doc.get('remote_key'):
+            from object_store import get_object_store
+            store = get_object_store()
+
+            # Proxy mode: stream through Flask (read into memory first
+            # to avoid temp file race with WSGI streaming)
+            if request.args.get('proxy') == '1':
+                import io
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                    tmp_path = tmp.name
+                try:
+                    store.get(doc['remote_key'], tmp_path)
+                    with open(tmp_path, 'rb') as f:
+                        data = io.BytesIO(f.read())
+                finally:
+                    Path(tmp_path).unlink(missing_ok=True)
+                return send_file(
+                    data,
+                    mimetype=doc['mime_type'],
+                    as_attachment=True,
+                    download_name=doc['filename']
+                )
+
+            # Default: presigned URL redirect
+            presigned = store.presign(doc['remote_key'], expires_seconds=300)
+            return redirect(presigned.url, code=302)
+
+        current_app.logger.error("Document file unavailable: doc=%s tier=%s", doc_id, storage_tier)
+        return jsonify({'error': 'Document file not available'}), 404
+
+    except Exception as e:
+        current_app.logger.error("GET /documents/%s/download failed: %s", doc_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== PAGE IMAGE (THUMBNAIL/VIEWER) ====================
+
+@bp.route('/documents/<doc_id>/pages/<int:page_number>/image', methods=['GET'])
+@require_auth
+def get_page_image(doc_id, page_number):
+    """Serve a rendered page PNG inline. Used by the documents UI for thumbnails
+    and any future per-page viewer. The query filters document_pages by tenant_id + user_id.
+    """
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.image_path
+            FROM document_pages p
+            JOIN documents d
+              ON d.tenant_id = p.tenant_id AND d.id = p.document_id
+            WHERE p.tenant_id = %s
+              AND p.user_id = %s
+              AND p.document_id = %s
+              AND p.page_number = %s
+              AND d.deleted_at IS NULL
+        """, (tenant_id, user_id, doc_id, page_number))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(
+                f'/documents/{doc_id}/pages/{page_number}/image', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("GET /documents/%s/pages/%s/image failed: %s",
+                                 doc_id, page_number, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+    if not row or not row.get('image_path'):
+        return jsonify({'error': 'Page image not available'}), 404
+
+    image_path = Path(row['image_path']).resolve()
+    # Defense-in-depth: refuse to serve anything outside the userdocs root.
+    try:
+        image_path.relative_to(STORAGE_ROOT.resolve())
+    except ValueError:
+        current_app.logger.error("Page image escapes STORAGE_ROOT: doc=%s path=%s",
+                                 doc_id, image_path)
+        return jsonify({'error': 'Page image not available'}), 404
+
+    if not image_path.exists():
+        return jsonify({'error': 'Page image file missing'}), 404
+
+    response = send_file(
+        str(image_path),
+        mimetype='image/png',
+        as_attachment=False,
+        download_name=f'page_{page_number:03d}.png',
+    )
+    response.headers['Cache-Control'] = 'private, max-age=3600'
+    return response
+
+
+# ==================== UPDATE METADATA ====================
+
+@bp.route('/documents/<doc_id>', methods=['PATCH'])
+@require_auth
+def update_document(doc_id):
+    """Update document metadata (title, category, tags, filename, folder_id).
+
+    `filename` renames the user-visible name — the on-disk path is unchanged.
+    `folder_id` moves the document; the target folder must belong to the user
+    and be live. Moves do not rewrite the remote key (that's keyed by document_id).
+    """
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+    data = request.json
+
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    allowed_fields = {'title', 'category', 'tags', 'filename', 'folder_id'}
+    updates = {k: v for k, v in data.items() if k in allowed_fields}
+
+    if not updates:
+        return jsonify({'error': 'No valid fields to update'}), 400
+
+    # Normalize filename
+    if 'filename' in updates:
+        fn = updates['filename']
+        if not isinstance(fn, str) or not fn.strip() or len(fn) > 255:
+            return jsonify({'error': 'Invalid filename'}), 400
+        if any(c in fn for c in ('/', '\\', '\x00')):
+            return jsonify({'error': 'Filename cannot contain path separators'}), 400
+        updates['filename'] = fn.strip()
+
+    now = datetime.now(pytz.utc)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Validate folder_id if moving
+        if 'folder_id' in updates:
+            target_folder = updates['folder_id']
+            if not target_folder:
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'folder_id cannot be empty'}), 400
+            cur.execute("""
+                SELECT id FROM document_folders
+                WHERE tenant_id = %s AND user_id = %s AND id = %s AND deleted_at IS NULL
+            """, (tenant_id, str(user_id), target_folder))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'Target folder not found'}), 404
+
+        # Build dynamic SET clause
+        set_parts = []
+        params = []
+        for field, value in updates.items():
+            set_parts.append(sql.SQL("{} = %s").format(sql.Identifier(field)))
+            params.append(value if field != 'tags' else (value if isinstance(value, list) else value))
+
+        set_parts.append(sql.SQL("updated_at = %s"))
+        params.append(now)
+        params.append(tenant_id)
+        params.append(user_id)
+        params.append(doc_id)
+
+        update_query = sql.SQL("""
+            UPDATE documents
+            SET {set_clause}
+            WHERE tenant_id = %s AND user_id = %s AND id = %s AND deleted_at IS NULL
+            RETURNING id, folder_id, filename, title, category, tags, updated_at
+        """).format(set_clause=sql.SQL(", ").join(set_parts))
+        cur.execute(update_query, params)
+
+        doc = cur.fetchone()
+        if not doc:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Document not found'}), 404
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        doc['id'] = str(doc['id'])
+        if doc.get('folder_id'):
+            doc['folder_id'] = str(doc['folder_id'])
+        if doc.get('updated_at'):
+            doc['updated_at'] = doc['updated_at'].isoformat()
+
+        return jsonify(doc)
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(f'/documents/{doc_id}', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("PATCH /documents/%s failed: %s", doc_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== SOFT DELETE ====================
+
+@bp.route('/documents/<doc_id>', methods=['DELETE'])
+@require_auth
+def delete_document(doc_id):
+    """Soft-delete a document (sets deleted_at, preserves file)."""
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+    now = datetime.now(pytz.utc)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            UPDATE documents
+            SET deleted_at = %s, updated_at = %s
+            WHERE tenant_id = %s AND user_id = %s AND id = %s AND deleted_at IS NULL
+            RETURNING id
+        """, (now, now, tenant_id, user_id, doc_id))
+
+        doc = cur.fetchone()
+        if not doc:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Document not found'}), 404
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        current_app.logger.info("Document soft-deleted: id=%s user=%s", doc_id, user_id)
+        return jsonify({'deleted': True, 'id': str(doc['id'])}), 200
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(f'/documents/{doc_id}', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("DELETE /documents/%s failed: %s", doc_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== RESTORE ====================
+
+@bp.route('/documents/<doc_id>/restore', methods=['POST'])
+@require_auth
+def restore_document(doc_id):
+    """Restore a soft-deleted document. Requires its folder to be live."""
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+    now = datetime.now(pytz.utc)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT d.id, d.folder_id, f.deleted_at AS folder_deleted_at
+            FROM documents d
+            JOIN document_folders f
+              ON f.tenant_id = d.tenant_id AND f.id = d.folder_id
+            WHERE d.tenant_id = %s AND d.user_id = %s AND d.id = %s AND d.deleted_at IS NOT NULL
+        """, (tenant_id, user_id, doc_id))
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Trashed document not found'}), 404
+        if row['folder_deleted_at'] is not None:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Parent folder is not available; restore it first'}), 409
+
+        cur.execute("""
+            UPDATE documents
+            SET deleted_at = NULL, updated_at = %s
+            WHERE tenant_id = %s AND user_id = %s AND id = %s
+            RETURNING id
+        """, (now, tenant_id, user_id, doc_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        current_app.logger.info("Document restored: id=%s user=%s", doc_id, user_id)
+        return jsonify({'restored': True, 'id': str(doc_id)})
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(f'/documents/{doc_id}/restore', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("POST /documents/%s/restore failed: %s", doc_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== ANNOTATIONS: CREATE ====================
+
+@bp.route('/documents/<doc_id>/annotations', methods=['POST'])
+@require_auth
+def create_annotation(doc_id):
+    """Create an annotation on a document (page-level or document-level).
+
+    Requires the document to be owned by the current user (checked by the SQL predicate).
+    Sets author_type='user' and author_id to current user.
+    """
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+    data = request.json
+
+    if not data or not data.get('body', '').strip():
+        return jsonify({'error': 'body is required'}), 400
+
+    body = data['body'].strip()
+    page_number = data.get('page_number')  # None = document-level
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Verify the document exists and belongs to the current user (explicit user_id)
+        cur.execute("""
+            SELECT id, user_id FROM documents
+            WHERE tenant_id = %s AND user_id = %s AND id = %s AND deleted_at IS NULL
+        """, (tenant_id, user_id, doc_id,))
+
+        doc = cur.fetchone()
+        if not doc:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Document not found'}), 404
+
+        doc_owner_id = str(doc['user_id'])
+        now = datetime.now(pytz.utc)
+
+        cur.execute("""
+            INSERT INTO document_annotations
+                (tenant_id, user_id, document_id, author_type, author_id,
+                 page_number, body, created_at, updated_at)
+            VALUES (%s, %s, %s, 'user', %s, %s, %s, %s, %s)
+            RETURNING id, document_id, author_type, author_id,
+                      page_number, body, created_at, updated_at
+        """, (tenant_id, doc_owner_id, doc_id, str(user_id),
+              page_number, body, now, now))
+
+        ann = cur.fetchone()
+        conn.commit()
+        cur.close()
+        assert ann is not None
+
+        embed_field(
+            conn, tenant_id, ann['id'],
+            'document_annotations', 'embedding_body',
+            body, data.get('embedding'),
+        )
+
+        conn.close()
+
+        ann['id'] = str(ann['id'])
+        ann['document_id'] = str(ann['document_id'])
+        ann['author_id'] = str(ann['author_id'])
+        if ann.get('created_at'):
+            ann['created_at'] = ann['created_at'].isoformat()
+        if ann.get('updated_at'):
+            ann['updated_at'] = ann['updated_at'].isoformat()
+
+        current_app.logger.info("Annotation created: id=%s doc=%s author=%s",
+                                ann['id'], doc_id, user_id)
+        return jsonify(ann), 201
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(f'/documents/{doc_id}/annotations', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("POST /documents/%s/annotations failed: %s", doc_id, e, exc_info=True)
+        return jsonify({'error': 'Failed to create annotation'}), 500
+
+
+# ==================== ANNOTATIONS: LIST ====================
+
+@bp.route('/documents/<doc_id>/annotations', methods=['GET'])
+@require_auth
+def list_annotations(doc_id):
+    """List annotations on a document (paginated).
+
+    Scoped to the owning user via the explicit user_id predicate.
+    Joins to users to include the author's display name.
+    """
+    user_id = get_user_id()
+    limit = min(int(request.args.get('limit', 50)), 200)
+    offset = int(request.args.get('offset', 0))
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT a.id, a.document_id, a.author_type, a.author_id,
+                   a.page_number, a.body, a.created_at, a.updated_at,
+                   COALESCE(u.display_name, 'Unknown') as author_name
+            FROM document_annotations a
+            LEFT JOIN users u ON u.tenant_id = a.tenant_id AND u.id = a.author_id
+            WHERE a.document_id = %s AND a.user_id = %s
+            ORDER BY a.created_at DESC
+            LIMIT %s OFFSET %s
+        """, (doc_id, str(user_id), limit, offset))
+
+        annotations = cur.fetchall()
+
+        cur.execute("""
+            SELECT COUNT(*) as total FROM document_annotations
+            WHERE document_id = %s AND user_id = %s
+        """, (doc_id, str(user_id)))
+        total = cur.fetchone()['total']
+
+        cur.close()
+        conn.close()
+
+        for ann in annotations:
+            ann['id'] = str(ann['id'])
+            ann['document_id'] = str(ann['document_id'])
+            ann['author_id'] = str(ann['author_id'])
+            if ann.get('created_at'):
+                ann['created_at'] = ann['created_at'].isoformat()
+            if ann.get('updated_at'):
+                ann['updated_at'] = ann['updated_at'].isoformat()
+
+        return jsonify({
+            'annotations': annotations,
+            'total': total,
+            'limit': limit,
+            'offset': offset,
+        })
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(f'/documents/{doc_id}/annotations', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("GET /documents/%s/annotations failed: %s", doc_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== ANNOTATIONS: UPDATE ====================
+
+@bp.route('/documents/<doc_id>/annotations/<ann_id>', methods=['PATCH'])
+@require_auth
+def update_annotation(doc_id, ann_id):
+    """Update an annotation's body. Only the original author can edit."""
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+    data = request.json
+
+    if not data or not data.get('body', '').strip():
+        return jsonify({'error': 'body is required'}), 400
+
+    body = data['body'].strip()
+    now = datetime.now(pytz.utc)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Update only if user is the author
+        cur.execute("""
+            UPDATE document_annotations
+            SET body = %s, updated_at = %s
+            WHERE id = %s AND document_id = %s AND user_id = %s AND author_id = %s
+            RETURNING id, body, updated_at
+        """, (body, now, ann_id, doc_id, str(user_id), str(user_id)))
+
+        ann = cur.fetchone()
+        if not ann:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Annotation not found or not owned by you'}), 404
+
+        conn.commit()
+        cur.close()
+
+        embed_field(
+            conn, tenant_id, ann['id'],  # ann is not None — RETURNING guaranteed a row
+            'document_annotations', 'embedding_body',
+            body, data.get('embedding'),
+        )
+
+        conn.close()
+
+        ann['id'] = str(ann['id'])
+        if ann.get('updated_at'):
+            ann['updated_at'] = ann['updated_at'].isoformat()
+
+        return jsonify(ann)
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(f'/documents/{doc_id}/annotations/{ann_id}', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("PATCH /documents/%s/annotations/%s failed: %s",
+                                 doc_id, ann_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== ANNOTATIONS: DELETE ====================
+
+@bp.route('/documents/<doc_id>/annotations/<ann_id>', methods=['DELETE'])
+@require_auth
+def delete_annotation(doc_id, ann_id):
+    """Delete an annotation. Author can delete own. Document owner can delete any."""
+    user_id = get_user_id()
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Fetch annotation to check ownership
+        tenant_id = g.user.get('tenant_id', 1)
+        cur.execute("""
+            SELECT id, author_id, user_id FROM document_annotations
+            WHERE tenant_id = %s AND user_id = %s AND id = %s AND document_id = %s
+        """, (tenant_id, str(user_id), ann_id, doc_id))
+
+        ann = cur.fetchone()
+        if not ann:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Annotation not found'}), 404
+
+        # Allow delete if: author, or document owner (moderator)
+        is_author = str(ann['author_id']) == str(user_id)
+        is_doc_owner = str(ann['user_id']) == str(user_id)
+
+        if not is_author and not is_doc_owner:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Only annotation author or document owner can delete'}), 403
+
+        cur.execute("""
+            DELETE FROM document_annotations WHERE id = %s AND document_id = %s AND user_id = %s
+        """, (ann_id, doc_id, str(user_id)))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        current_app.logger.info("Annotation deleted: id=%s doc=%s by=%s", ann_id, doc_id, user_id)
+        return jsonify({'deleted': True, 'id': str(ann['id'])})
+
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill(f'/documents/{doc_id}/annotations/{ann_id}', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("DELETE /documents/%s/annotations/%s failed: %s",
+                                 doc_id, ann_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500

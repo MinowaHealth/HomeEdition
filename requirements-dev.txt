@@ -1,0 +1,12 @@
+# Developer tooling — install on top of a service's requirements.txt to
+# reproduce the CI gates locally. See TESTING.md for the full workflow.
+#
+#   python3.12 -m venv .venv
+#   .venv/bin/pip install -r UserApp/webapp/requirements.txt -r requirements-dev.txt
+#   .venv/bin/pre-commit install
+#
+# pytest / pytest-cov come from the service requirements (UserApp/webapp).
+
+pyright==1.1.408        # MUST match .github/workflows/ci.yml (the type-check gate)
+pre-commit>=3.7         # runs ruff, bandit, gitleaks, pyright, and the SQL/route audits
+pip-audit>=2.7          # dependency CVE gate (ci.yml "dependency-audit")

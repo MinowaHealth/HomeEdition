@@ -1,0 +1,136 @@
+# Dependabot configuration for Minowa.ai Home Edition
+# Scans the service directories for Python dependency vulnerabilities
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Strategy summary (see DependencyManagement.md for the full write-up):
+#
+#   - Groups bundle related updates into one PR instead of 6-10 individual
+#     PRs per service per week. Patches and minors collapse into one PR
+#     each per service; pytest-* is also grouped.
+#   - Major-version bumps on runtime-critical packages (flask, gunicorn,
+#     pydantic, mcp, etc.) are blocked — they require deliberate planning,
+#     not a Tuesday-morning auto-PR.
+#   - Patch bumps with green CI auto-merge via the workflow at
+#     .github/workflows/dependabot-auto-merge.yml.
+#   - Docker python is capped at <3.14; production runs 3.13. Testing role
+#     opts into 3.14 via build-arg PYTHON_VERSION.
+
+version: 2
+updates:
+  # ============================================================
+  # PYTHON SERVICES
+  # ============================================================
+
+  # UserApp — patient-facing API (port 80)
+  - package-ecosystem: "pip"
+    directory: "/UserApp/webapp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0  # TEMP: re-enable 2026-05-01 (CI billing freeze)
+    labels:
+      - "dependencies"
+      - "userapp"
+    groups:
+      pytest-stack:
+        patterns: ["pytest", "pytest-*"]
+      patches:
+        update-types: ["patch"]
+      minors:
+        update-types: ["minor"]
+    ignore:
+      - dependency-name: "flask"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "gunicorn"
+        update-types: ["version-update:semver-major"]
+
+  # UserMCP — MCP server for users (port 13282)
+  - package-ecosystem: "pip"
+    directory: "/UserMCP"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0  # TEMP: re-enable 2026-05-01 (CI billing freeze)
+    labels:
+      - "dependencies"
+      - "usermcp"
+    groups:
+      pytest-stack:
+        patterns: ["pytest", "pytest-*"]
+      patches:
+        update-types: ["patch"]
+      minors:
+        update-types: ["minor"]
+    ignore:
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pydantic"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "starlette"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "uvicorn"
+        update-types: ["version-update:semver-major"]
+
+  # DataModel3 — schema audit tooling
+  - package-ecosystem: "pip"
+    directory: "/DataModel3"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0  # TEMP: re-enable 2026-05-01 (CI billing freeze)
+    labels:
+      - "dependencies"
+      - "datamodel3"
+    groups:
+      patches:
+        update-types: ["patch"]
+      minors:
+        update-types: ["minor"]
+
+  # ============================================================
+  # DOCKER BASE IMAGES
+  # ============================================================
+  # Python is capped at <3.14 across the board; production stays on 3.13.
+  # The service Dockerfiles share a single grouped PR per week so a
+  # base-image bump no longer fans out into simultaneous PRs.
+
+  - package-ecosystem: "docker"
+    directory: "/UserApp/webapp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0  # TEMP: re-enable 2026-05-01 (CI billing freeze)
+    labels:
+      - "dependencies"
+      - "docker"
+    groups:
+      docker-base:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+  - package-ecosystem: "docker"
+    directory: "/UserMCP"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0  # TEMP: re-enable 2026-05-01 (CI billing freeze)
+    labels:
+      - "dependencies"
+      - "docker"
+    groups:
+      docker-base:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  # ============================================================
+  # GITHUB ACTIONS
+  # ============================================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0  # TEMP: re-enable 2026-05-01 (CI billing freeze)
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      actions:
+        patterns: ["*"]

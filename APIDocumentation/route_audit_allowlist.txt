@@ -1,0 +1,143 @@
+# route_audit_allowlist.txt
+#
+# Paths that exist as Flask routes in UserApp/webapp/ but are intentionally
+# NOT declared in openapi.yaml yet. The route_spec_audit.py audit treats
+# these as "tolerated" — present, known, deferred — instead of new drift.
+#
+# Doctrine: openapi.yaml declares only stable contract surface. Routes
+# whose request/response shapes are still evolving live here until they
+# stabilize, then they migrate into the spec and get removed from this list.
+#
+# Groups below are organized by reason-for-deferral, not by file. When a
+# group's whole row set has been declared in the spec, delete the group
+# header AND its paths in one commit. The audit will fail with a STALE
+# ALLOWLIST report if you forget.
+#
+# To add a new entry: add the path under the appropriate group with a
+# brief reason. To remove: write the spec, then delete the entry.
+
+# ─── RxDB push/pull sync — pending finalization of replication contract ───
+# These endpoints use the RxDB checkpoint pull/push protocol (_id/_rev/
+# _deleted). The mobile sync columns (sqlite_id/synced_at) aren't finalized
+# yet, so these schemas aren't ready to declare in the spec.
+/api/v1/dietary-settings/pull
+/api/v1/dietary-settings/push
+/api/v1/diet-catalog/pull
+
+# ─── Wearable sync — high-volume, schema still moving ────────────────────
+# Garmin and HealthKit ingestion endpoints. CLAUDE.md notes hkit_*/garm_*
+# tables hold canonical data; health_* tables are derived. Until that
+# projection contract is stable, the API shapes here aren't ready to commit.
+/api/v1/garmin/connect
+/api/v1/garmin/disconnect
+/api/v1/garmin/jobs
+/api/v1/garmin/jobs/{job_id}
+/api/v1/garmin/status
+/api/v1/garmin/sync
+/api/v1/healthkit/correct
+/api/v1/healthkit/jobs
+/api/v1/healthkit/jobs/{job_id}
+/api/v1/healthkit/sync
+/api/v1/healthkit/upload
+
+# ─── Documents + folders — multipart uploads ─────────────────────────────
+/api/v1/documents
+/api/v1/documents/upload
+/api/v1/documents/{doc_id}
+/api/v1/documents/{doc_id}/annotations
+/api/v1/documents/{doc_id}/annotations/{ann_id}
+/api/v1/documents/{doc_id}/download
+/api/v1/documents/{doc_id}/pages/{page_number}/image
+/api/v1/documents/{doc_id}/restore
+/api/v1/folders
+/api/v1/folders/{folder_id}
+/api/v1/folders/{folder_id}/restore
+
+# ─── Clinical history endpoints — schema still being filled in ───────────
+/api/v1/allergies
+/api/v1/allergies/{allergy_id}
+/api/v1/blood-work
+/api/v1/blood-work/{result_id}
+/api/v1/conditions
+/api/v1/conditions/{condition_id}
+/api/v1/family-history
+/api/v1/family-history/{entry_id}
+/api/v1/lab-results
+/api/v1/social-history
+/api/v1/social-history/{entry_id}
+/api/v1/surgical-history
+/api/v1/vaccinations
+/api/v1/vaccinations/{vaccination_id}
+
+# ─── Food / meals / nutrition ─────────────────────────────────────────────
+/api/v1/food-items
+/api/v1/food-items/{item_id}
+/api/v1/food-log
+/api/v1/food-log/{log_id}
+/api/v1/log-food-item
+/api/v1/log-meal
+/api/v1/meals
+/api/v1/meals/{meal_id}
+/api/v1/nutrition
+/api/v1/nutrition/today
+
+# ─── Diet catalog + dietary settings — schema landed, app not consuming yet ──
+# The diet_codes/diet_flags columns exist in the schema but the app code
+# doesn't consume them yet. Endpoints exist but the response shape will
+# change once that work lands.
+/api/v1/diet-catalog
+/api/v1/diet-catalog/{code}
+/api/v1/dietary-settings
+/api/v1/dietary-settings/{setting_id}
+
+# ─── Stacks / timeframes / logging ────────────────────────────────────────
+# Medication scheduling lives only on timeframes; stacks/health-inputs carry
+# no schedule. Some follow-on work here is still parked, so the response
+# shapes for stacks and timeframes are subject to change.
+/api/v1/stacks
+/api/v1/stacks/{stack_id}
+/api/v1/timeframes
+/api/v1/timeframes/{timeframe_id}
+/api/v1/log-stack
+/api/v1/log-health-input
+/api/v1/health-input-log
+/api/v1/health-input-log/{log_id}
+/api/v1/log-promotions
+/api/v1/log-promotions/{promo_id}
+
+# ─── Reminders — projected vs scheduled split still in flux ───────────────
+/api/v1/reminders
+/api/v1/reminders/{id}
+/api/v1/reminders/{id}/complete
+/api/v1/reminders/{id}/snooze
+/api/v1/projected-reminders
+/api/v1/projected-reminders/{id}
+/api/v1/projected-reminders/{id}/enable
+/api/v1/projected-reminders/{id}/snooze
+
+# ─── Provider contact book (plain address book — no NPI verification) ─────
+/api/v1/provider-contacts
+/api/v1/provider-contacts/{contact_id}
+/api/v1/appointments
+/api/v1/appointments/{id}
+/api/v1/appointments/{id}/complete
+
+# ─── Analytics / search / dashboards — derived data, not contract-stable ──
+/api/v1/adherence
+/api/v1/all-logs
+/api/v1/correlation-report
+/api/v1/dashboard
+/api/v1/diagnostics/table-counts
+/api/v1/health-query
+/api/v1/medication-metrics
+/api/v1/search
+/api/v1/semantic-search
+/api/v1/sleep
+/api/v1/sleep-heatmap
+/api/v1/stress-heatmap
+/api/v1/sync-embeddings
+/api/v1/your-week
+
+# ─── Feedback — stored locally; shape still evolving
+/api/v1/feedback
+/api/v1/feedback/{feedback_id}

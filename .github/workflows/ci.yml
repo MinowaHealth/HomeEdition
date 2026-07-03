@@ -1,0 +1,296 @@
+# Minowa.ai Home Edition CI Pipeline
+# 2026-02-09 - Initial setup for multi-dev testing
+#
+# Runs on all pushes and PRs to main. Tests against ephemeral PostgreSQL.
+
+name: CI
+
+on:
+  # CI gates main, the single trunk. Feature branches iterate against the
+  # local Mac Docker stack — they do not fire CI, no minutes burned.
+  #
+  # Doc-only pushes also skip CI. The wide gates (pyright, pip-audit,
+  # image build) don't depend on markdown content. Any non-md /
+  # non-LICENSE file in the change set defeats the paths-ignore filter
+  # and the full gate runs.
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE*'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE*'
+
+env:
+  PYTHON_VERSION: "3.12"
+  POSTGRES_VERSION: "16"
+
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: pip install ruff "bandit[toml]"
+
+      - name: Run ruff
+        working-directory: UserApp
+        run: ruff check webapp/
+
+      - name: Run Bandit security scan
+        # -l: Low+ severity (lowered from -ll / Medium+ to widen coverage).
+        # Categories with chronic false positives
+        # (B105/B110/B112/B311/B608) are listed under [tool.bandit].skips in
+        # pyproject.toml so the signal stays useful. See pyproject.toml for the
+        # rationale per skipped rule.
+        run: bandit -c pyproject.toml -r UserApp UserMCP -l
+
+  type-check:
+    # Pyright is wired into the pre-commit hook (.pre-commit-config.yaml)
+    # but only fires when one of UserApp/webapp/{auth,db_manager,embedding_utils}.py
+    # is staged. That narrow trigger let pre-existing errors accumulate
+    # unseen between commits that didn't touch those three files. This
+    # job runs pyright against the whole project on every push so the
+    # gate is honest regardless of what's staged.
+    #
+    # Build deps for import resolution: install every service's
+    # requirements file. Pyright doesn't need them for type errors per
+    # se (pyrightconfig has reportMissingImports as a warning, not an
+    # error), but resolving the deps avoids spurious Optional/Unknown
+    # cascades that mask real findings.
+    name: Type Check (pyright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Create .venv and install service dependencies
+        # pyrightconfig.json sets venvPath="." and venv=".venv"; pyright
+        # resolves imports against this venv. Install every service's
+        # requirements so pyright sees the same dep graph the running
+        # services do.
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install pyright==1.1.408
+          for req in \
+            UserApp/webapp/requirements.txt \
+            UserMCP/requirements.txt \
+            DataModel3/requirements.txt
+          do
+            .venv/bin/pip install -r "$req"
+          done
+
+      - name: Run pyright
+        # Exits non-zero on any error (warnings are tolerated). Local
+        # baseline as of 2026-04-28: 0 errors / 138 warnings.
+        run: .venv/bin/pyright
+
+  secret-scan:
+    # Backstop layer for the gitleaks pre-commit hook (pinned to the same
+    # v8.30.1 in .pre-commit-config.yaml). The pre-commit hook only fires
+    # on developer machines where `pre-commit install` has been run; this
+    # job catches commits that bypass it (web-UI edits, --no-verify pushes,
+    # fresh clones without hooks, contributors without pre-commit installed).
+    #
+    # Scans the working tree at HEAD only (--no-git). Historical findings
+    # documented before 2026-04-28 are tracked for a separate ops cleanup
+    # via git filter-repo at the prodvps cutover; CI's job is to prevent
+    # *new* secrets from landing on main.
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install gitleaks v8.30.1
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan working tree at HEAD
+        run: gitleaks detect --no-git --source . --redact --verbose
+
+  dependency-audit:
+    name: Dependency CVE Scan (pip-audit)
+    runs-on: ubuntu-latest
+    # Matrix lets each service's findings surface independently instead of
+    # one failure masking the rest.
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - { name: UserApp,              req: UserApp/webapp/requirements.txt }
+          - { name: UserMCP,              req: UserMCP/requirements.txt }
+          - { name: DataModel3,           req: DataModel3/requirements.txt }
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit ${{ matrix.service.name }} dependencies
+        # pip-audit exits non-zero on any known CVE in a resolved dep.
+        # To accept a specific unfixable CVE, add `--ignore-vuln <GHSA-id>` here
+        # with a comment explaining why and when to re-check.
+        run: pip-audit --requirement ${{ matrix.service.req }} --strict
+
+  schema-audit:
+    # Static-only audit chain: unused columns (schema → code reachability) +
+    # code query audit (code → schema legality, per service).
+    name: Schema Audit (Code ↔ Schema)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Create .venv and install audit dependencies
+        # run_full_audit.sh expects .venv/bin/python.
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r DataModel3/requirements.txt
+
+      - name: Run audit chain
+        # No <prod-snapshot> arg → step 1 skipped. POSTGRES_PASSWORD unset →
+        # step 2 skipped. Steps 3 and 4 run; script exits non-zero on any
+        # step that ran and failed.
+        run: bash DataModel3/run_full_audit.sh
+
+      - name: Upload per-service code query audit reports
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: schema-audit-reports
+          path: |
+            DataModel3/CodeQueryAudit-*.md
+            DataModel3/UnusedColumnsAudit.md
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: lint
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: Password2026
+          POSTGRES_DB: healthv10
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r UserApp/webapp/requirements.txt
+          pip install pytest
+
+      - name: Initialize database schema
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: Password2026
+          PGDATABASE: healthv10
+        run: |
+          # Install PostgreSQL client
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+
+          # Apply Home Edition schema and app-role setup (matches Docker entrypoint order)
+          psql -v ON_ERROR_STOP=1 -f Infrastructure/init/docker-init-home/02-home_schema.sql
+          # -v sets the psql variable :app_db_password used in CREATE ROLE
+          psql -v ON_ERROR_STOP=1 -v app_db_password='ci-test-password' \
+               -f Infrastructure/init/docker-init-home/role/app-role-setup.sql
+
+      - name: Run tests
+        # Coverage gate: workers and external-service adapters are excluded via the omit list
+        # in UserApp/pyproject.toml [tool.coverage.run]. Gate is set to 0 for
+        # this run so we can read the honest post-exclusion floor from the
+        # report; tighten in a follow-up commit. Original target: 60%.
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: healthv10
+          DB_USER: postgres
+          DB_PASSWORD: Password2026
+          SECRET_KEY: test-secret-key-for-ci
+          FLASK_ENV: testing
+          APP_API_KEY: test-api-key
+          TIMEZONE: America/Los_Angeles
+        working-directory: UserApp
+        run: |
+          pytest -v --tb=short --junitxml=test-results.xml \
+                 --cov=webapp --cov-report=xml --cov-report=term \
+                 --cov-fail-under=0
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-results
+          path: UserApp/test-results.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-userapp
+          path: UserApp/coverage.xml
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build webapp image
+        uses: docker/build-push-action@v7
+        with:
+          context: UserApp/webapp
+          push: false
+          tags: minowa-webapp:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

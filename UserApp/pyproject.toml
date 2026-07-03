@@ -1,0 +1,21 @@
+[tool.pytest.ini_options]
+testpaths = ["tests", "webapp/tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+addopts = "-v --tb=short --no-header"
+
+[tool.coverage.run]
+# Exclude code that runs in background threads or polls external APIs, or
+# wraps external services with no in-process logic the tests can exercise.
+# Including these inflates the "uncovered" denominator without telling us
+# anything actionable — they need integration tests, not unit-test coverage.
+# (ocr/ shells out to Tesseract/poppler; covered by the boot smoke test.)
+omit = [
+    "webapp/garmin_worker.py",
+    "webapp/healthkit_worker.py",
+    "webapp/healthkit_importer.py",
+    "webapp/mobile_events_worker.py",
+    "webapp/object_store/*",
+    "webapp/fax/*",
+    "webapp/ocr/*",
+]

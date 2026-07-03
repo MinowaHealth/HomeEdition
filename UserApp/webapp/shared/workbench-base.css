@@ -1,0 +1,327 @@
+/* ============================================================
+   Minowa.ai — Workbench Layout (Shared)
+   2026-02-28
+   VS Code-style 3-panel grid: Activity Bar | Side Bar | Editor Area
+   Requires tokens.css loaded first.
+   ============================================================ */
+
+/* ---- Reset ---- */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+html {
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+body {
+    font-family: var(--font-family);
+    background: var(--color-bg);
+    color: var(--color-text);
+    min-height: 100vh;
+}
+
+/* ---- Activity Bar Size Tiers ---- */
+/* Set via data-actbar-size attribute on <body>, stored in localStorage */
+body                          { --actbar-col: 96px;  --actbar-btn: 72px;  --actbar-svg: 36px; }
+body[data-actbar-size="sm"]   { --actbar-col: 48px;  --actbar-btn: 40px;  --actbar-svg: 20px; }
+body[data-actbar-size="md"]   { --actbar-col: 72px;  --actbar-btn: 56px;  --actbar-svg: 28px; }
+body[data-actbar-size="lg"]   { --actbar-col: 96px;  --actbar-btn: 72px;  --actbar-svg: 36px; }
+body[data-actbar-size="xl"]   { --actbar-col: 144px; --actbar-btn: 108px; --actbar-svg: 54px; }
+
+/* ---- Grid Shell ---- */
+.workbench {
+    display: grid;
+    grid-template-columns: var(--actbar-col) var(--sidebar-width, 280px) 1fr;
+    grid-template-rows: 1fr auto;
+    grid-template-areas:
+        "actbar sidebar editor"
+        "actbar statusbar statusbar";
+    height: 100vh;
+    overflow: hidden;
+}
+
+.workbench.sidebar-collapsed {
+    grid-template-columns: var(--actbar-col) 0px 1fr;
+}
+
+/* ---- Activity Bar ---- */
+.activity-bar {
+    grid-area: actbar;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--color-actbar-bg);
+    padding-top: var(--space-sm);
+    gap: 2px;
+    z-index: 10;
+    overflow: hidden;
+}
+
+.activity-bar .act-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--actbar-btn);
+    height: var(--actbar-btn);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    color: var(--color-actbar-icon);
+    font-size: 1.75rem;
+    border: none;
+    background: none;
+    transition: color 0.15s, background-color 0.15s;
+    position: relative;
+    padding: 0;
+    box-shadow: none;
+    transform: none;
+}
+
+.activity-bar .act-icon svg {
+    width: var(--actbar-svg);
+    height: var(--actbar-svg);
+}
+
+.activity-bar .act-icon:hover {
+    color: var(--color-actbar-icon-hover);
+    background: var(--color-actbar-hover);
+    transform: none;
+    box-shadow: none;
+}
+
+.activity-bar .act-icon.active {
+    color: var(--color-actbar-icon-active);
+}
+
+.activity-bar .act-icon.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 25%;
+    height: 50%;
+    width: 2px;
+    background: var(--color-actbar-icon-active);
+    border-radius: 1px;
+}
+
+.activity-bar .act-icon.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.activity-bar .act-icon.disabled:hover {
+    color: var(--color-actbar-icon);
+    background: none;
+}
+
+.activity-bar .act-spacer {
+    flex: 1;
+}
+
+/* ---- Side Bar ---- */
+.side-bar {
+    grid-area: sidebar;
+    background: var(--color-sidebar-bg);
+    border-right: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.15s ease;
+}
+
+.workbench.sidebar-collapsed .side-bar {
+    border-right: none;
+    overflow: hidden;
+}
+
+.side-bar-header {
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+    min-height: 36px;
+}
+
+.side-bar-header .collapse-btn {
+    background: none;
+    border: none;
+    color: var(--color-muted);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    padding: 2px 4px;
+    border-radius: var(--border-radius);
+    transform: none;
+    box-shadow: none;
+}
+
+.side-bar-header .collapse-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+    transform: none;
+    box-shadow: none;
+}
+
+.side-bar-search {
+    padding: 0 var(--space-md) var(--space-sm);
+    flex-shrink: 0;
+}
+
+.side-bar-search input {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: var(--font-size-sm);
+    font-family: var(--font-family);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-card);
+    color: var(--color-text);
+}
+
+.side-bar-search input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+}
+
+.side-bar-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 var(--space-sm);
+}
+
+.side-bar-view {
+    display: none;
+}
+
+.side-bar-view.active {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Side bar navigation items */
+.sb-nav-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 8px var(--space-sm);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    transition: background-color 0.1s;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-family);
+    transform: none;
+    box-shadow: none;
+}
+
+.sb-nav-item:hover {
+    background: var(--color-hover);
+    transform: none;
+    box-shadow: none;
+}
+
+.sb-nav-item.active {
+    background: var(--color-sidebar-active);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+/* Side bar list items (patients, notes, etc.) */
+.sb-list-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 6px var(--space-sm);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    transition: background-color 0.1s;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-family);
+}
+
+.sb-list-item:hover {
+    background: var(--color-hover);
+}
+
+.sb-list-item.active {
+    background: var(--color-sidebar-active);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+.sb-list-item .sb-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---- Editor Area ---- */
+.editor-area {
+    grid-area: editor;
+    overflow-y: auto;
+    background: var(--color-bg);
+    padding: var(--space-xl);
+}
+
+/* ---- Status Bar ---- */
+.status-bar {
+    grid-area: statusbar;
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: 2px var(--space-md);
+    background: var(--color-accent);
+    color: var(--color-text-inverse);
+    font-size: var(--font-size-xs);
+    min-height: 22px;
+}
+
+.status-bar .status-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.9;
+}
+
+.status-bar .status-spacer {
+    flex: 1;
+}
+
+/* ---- Responsive: collapse sidebar on mobile ---- */
+@media (max-width: 768px) {
+    .workbench {
+        grid-template-columns: var(--actbar-col) 0px 1fr;
+    }
+
+    .side-bar {
+        display: none;
+    }
+
+    .editor-area {
+        padding: var(--space-md);
+    }
+}

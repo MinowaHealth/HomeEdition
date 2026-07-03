@@ -1,0 +1,10 @@
+{
+  "payload_version": 2,
+  "characteristics": {
+    "date_of_birth": "1978-03-14",
+    "biological_sex": "male",
+    "blood_type": "O+",
+    "fitzpatrick_skin_type": "III",
+    "wheelchair_use": false
+  }
+}

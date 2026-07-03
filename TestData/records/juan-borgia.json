@@ -1,0 +1,304 @@
+{
+  "meta": {
+    "tenant_id": 1,
+    "user_id": "b015b015-0001-0001-0004-b00000000004",
+    "email": "juan@borgia.family",
+    "display_name": "Juan Borgia",
+    "biological_sex": "male",
+    "birth_year": 2014,
+    "home_timezone": "America/New_York",
+    "schema_version": "healthv10",
+    "generated_at": "2026-03-03T12:00:00+00:00",
+    "source": "Synthea FHIR bulk export samples (smart-on-fhir/sample-bulk-fhir-datasets, Apache 2.0 / CC BY 4.0), adapted for Minowa Home Edition Borgia test characters"
+  },
+  "health_conditions": [
+    {
+      "id": "c0c0c0c0-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "name": "Childhood obesity",
+      "icd10_code": "E66.01",
+      "diagnosed_date": "2024-03-03",
+      "status": "active",
+      "severity": "moderate",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "BMI >97th percentile for age"
+    },
+    {
+      "id": "c0c0c0c0-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "name": "Contusion of multiple sites",
+      "icd10_code": "S00.91",
+      "diagnosed_date": "2026-01-17",
+      "status": "resolved",
+      "severity": "mild",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "Recurring minor injuries; mechanism: sibling play"
+    }
+  ],
+  "health_allergies": [
+    {
+      "id": "a11a11a1-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "allergen": "Latex",
+      "allergy_type": "environmental",
+      "reaction": "Wheal (urticaria)",
+      "severity": "mild",
+      "onset_date": "2023-12-24",
+      "status": "active",
+      "source": "manual",
+      "notes": "Contact with rubber gloves triggers hives"
+    }
+  ],
+  "health_inputs": [
+    {
+      "id": "d05ed05e-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "name": "Children's Multivitamin",
+      "input_type": "supplement",
+      "dosage": "1 tablet",
+      "default_unit": "tablet",
+      "form": "chewable tablet",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": false,
+      "start_date": "2024-03-03",
+      "prescribing_doctor": null,
+      "active": true,
+      "notes": "General nutritional support"
+    }
+  ],
+  "timeframes": [
+    {
+      "id": "71f3f4a1-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "name": "Morning",
+      "time_of_day": "08:00:00",
+      "sort_order": 1,
+      "is_active": true
+    }
+  ],
+  "stacks": [
+    {
+      "id": "51ac51ac-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "name": "Morning Medications",
+      "timeframe_id": "71f3f4a1-0004-4001-8001-000000000001",
+      "is_active": true,
+      "sort_order": 1
+    }
+  ],
+  "stack_inputs": [
+    {
+      "id": "511a511a-0004-4001-8001-000000000065",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "stack_id": "51ac51ac-0004-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0004-4001-8001-000000000001",
+      "sort_order": 1
+    }
+  ],
+  "health_blood_pressure_readings": [
+    {
+      "id": "b100b100-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "measured_at": "2026-02-01T09:00:00+00:00",
+      "systolic": 108,
+      "diastolic": 68,
+      "pulse": 74,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "measured_at": "2025-09-04T09:00:00+00:00",
+      "systolic": 112,
+      "diastolic": 70,
+      "pulse": 76,
+      "position": "sitting",
+      "arm": "left"
+    }
+  ],
+  "health_blood_work": [
+    {
+      "id": "b100d100-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "test_date": "2025-12-03",
+      "test_name": "Hemoglobin",
+      "value": 13.2,
+      "unit": "g/dL",
+      "reference_range": "11.5-15.5",
+      "is_abnormal": false,
+      "loinc_code": "718-7",
+      "panel_name": "CBC",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "test_date": "2025-12-03",
+      "test_name": "Fasting Glucose",
+      "value": 88.0,
+      "unit": "mg/dL",
+      "reference_range": "70-100",
+      "is_abnormal": false,
+      "loinc_code": "1558-6",
+      "panel_name": "BMP",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0004-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "test_date": "2025-12-03",
+      "test_name": "Total Cholesterol",
+      "value": 152.0,
+      "unit": "mg/dL",
+      "reference_range": "<170",
+      "is_abnormal": false,
+      "loinc_code": "2093-3",
+      "panel_name": "Lipid Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    }
+  ],
+  "health_metrics": [
+    {
+      "id": "e71ca1ce-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "metric_type": "weight",
+      "value": 62,
+      "unit": "kg",
+      "recorded_at": "2026-02-01T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "metric_type": "weight",
+      "value": 60,
+      "unit": "kg",
+      "recorded_at": "2025-09-04T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0004-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "metric_type": "weight",
+      "value": 57,
+      "unit": "kg",
+      "recorded_at": "2025-03-03T09:00:00+00:00",
+      "source": "manual"
+    }
+  ],
+  "health_family_history": [
+    {
+      "id": "fa1ffa1f-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "relationship": "father",
+      "condition_name": "Anxiety disorder",
+      "icd10_code": "F41.1",
+      "age_at_onset": 30,
+      "vital_status": "alive",
+      "notes": null
+    },
+    {
+      "id": "fa1ffa1f-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "relationship": "uncle",
+      "condition_name": "Hypertension",
+      "icd10_code": "I10",
+      "age_at_onset": 45,
+      "vital_status": "alive",
+      "notes": null
+    },
+    {
+      "id": "fa1ffa1f-0004-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "relationship": "uncle",
+      "condition_name": "Type 2 diabetes",
+      "icd10_code": "E11.9",
+      "age_at_onset": 50,
+      "vital_status": "alive",
+      "notes": null
+    }
+  ],
+  "health_social_history": [
+    {
+      "id": "50c150c1-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "category": "tobacco_use",
+      "status": "never",
+      "detail": "Non-smoker; minor",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "category": "alcohol_use",
+      "status": "never",
+      "detail": "Does not drink; minor",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0004-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "category": "employment",
+      "status": "current",
+      "detail": "Elementary school student",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0004-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "category": "exercise",
+      "status": "current",
+      "detail": "Active play; martial arts hobby (supervised)",
+      "quantity": null
+    }
+  ],
+  "health_vaccinations": [
+    {
+      "id": "7acc7acc-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "vaccine_name": "Influenza, seasonal, injectable, preservative free",
+      "administered_date": "2025-09-24",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "vaccine_name": "Tdap",
+      "administered_date": "2024-03-03",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0004-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "vaccine_name": "meningococcal MCV4P",
+      "administered_date": "2024-03-03",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    }
+  ],
+  "health_observations": [
+    {
+      "id": "0b5e0b5e-0004-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "observed_at": "2026-02-01T10:00:00+00:00",
+      "category": "general",
+      "content": "Well-child visit age 11. Weight 62 kg, height 145 cm, BMI 29.5 (>97th pctl). Diet counseling initiated with family.",
+      "severity": 2
+    },
+    {
+      "id": "0b5e0b5e-0004-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0004-b00000000004",
+      "observed_at": "2025-12-03T10:00:00+00:00",
+      "category": "injury",
+      "content": "Seen for bruising to left forearm and right shin. Patient reports 'experiment went sideways'. No fractures on exam. Parents present.",
+      "severity": 1
+    }
+  ]
+}

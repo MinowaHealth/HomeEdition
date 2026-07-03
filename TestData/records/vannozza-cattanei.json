@@ -1,0 +1,429 @@
+{
+  "meta": {
+    "tenant_id": 1,
+    "user_id": "b015b015-0001-0001-0002-b00000000002",
+    "email": "vannozza@borgia.family",
+    "display_name": "Vannozza dei Cattanei",
+    "biological_sex": "female",
+    "birth_year": 1978,
+    "home_timezone": "America/New_York",
+    "schema_version": "healthv10",
+    "generated_at": "2026-03-03T12:00:00+00:00",
+    "source": "Synthea FHIR bulk export samples (smart-on-fhir/sample-bulk-fhir-datasets, Apache 2.0 / CC BY 4.0), adapted for Minowa Home Edition Borgia test characters"
+  },
+  "health_conditions": [
+    {
+      "id": "c0c0c0c0-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Iron deficiency anemia",
+      "icd10_code": "D50.9",
+      "diagnosed_date": "2023-02-27",
+      "status": "managed",
+      "severity": "moderate",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "On ferrous sulfate; improving"
+    },
+    {
+      "id": "c0c0c0c0-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Vitamin D deficiency",
+      "icd10_code": "E55.9",
+      "diagnosed_date": "2023-02-27",
+      "status": "managed",
+      "severity": "mild",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "Avoids sunlight; on supplementation"
+    },
+    {
+      "id": "c0c0c0c0-0002-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Underweight",
+      "icd10_code": "R63.6",
+      "diagnosed_date": "2024-07-11",
+      "status": "monitoring",
+      "severity": "mild",
+      "treating_doctor": "Dr. Torrella",
+      "notes": "BMI 17.2; poor appetite"
+    }
+  ],
+  "health_allergies": [],
+  "health_inputs": [
+    {
+      "id": "d05ed05e-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Ferrous Sulfate 325 MG Oral Tablet",
+      "input_type": "medication",
+      "dosage": "325 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2023-02-27",
+      "prescribing_doctor": "Dr. Torrella",
+      "active": true,
+      "notes": "Take with orange juice for absorption; avoid with tea or coffee"
+    },
+    {
+      "id": "d05ed05e-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Vitamin D3 2000 IU",
+      "input_type": "supplement",
+      "dosage": "2000 IU",
+      "default_unit": "IU",
+      "form": "capsule",
+      "frequency": "once daily",
+      "route": "oral",
+      "take_with_food": false,
+      "start_date": "2023-02-27",
+      "prescribing_doctor": null,
+      "active": true,
+      "notes": "Bone and immune support"
+    },
+    {
+      "id": "d05ed05e-0002-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Calcium Citrate 500 MG",
+      "input_type": "supplement",
+      "dosage": "500 mg",
+      "default_unit": "mg",
+      "form": "tablet",
+      "frequency": "twice daily",
+      "route": "oral",
+      "take_with_food": true,
+      "start_date": "2023-09-15",
+      "prescribing_doctor": null,
+      "active": true,
+      "notes": "Take with meals"
+    }
+  ],
+  "timeframes": [
+    {
+      "id": "71f3f4a1-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Morning",
+      "time_of_day": "08:00:00",
+      "sort_order": 1,
+      "is_active": true
+    }
+  ],
+  "stacks": [
+    {
+      "id": "51ac51ac-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "name": "Morning Medications",
+      "timeframe_id": "71f3f4a1-0002-4001-8001-000000000001",
+      "is_active": true,
+      "sort_order": 1
+    }
+  ],
+  "stack_inputs": [
+    {
+      "id": "511a511a-0002-4001-8001-000000000065",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "stack_id": "51ac51ac-0002-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0002-4001-8001-000000000001",
+      "sort_order": 1
+    },
+    {
+      "id": "511a511a-0002-4001-8001-000000000066",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "stack_id": "51ac51ac-0002-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0002-4001-8001-000000000002",
+      "sort_order": 2
+    },
+    {
+      "id": "511a511a-0002-4001-8001-000000000067",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "stack_id": "51ac51ac-0002-4001-8001-000000000001",
+      "health_input_id": "d05ed05e-0002-4001-8001-000000000003",
+      "sort_order": 3
+    }
+  ],
+  "health_blood_pressure_readings": [
+    {
+      "id": "b100b100-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "measured_at": "2026-02-01T09:00:00+00:00",
+      "systolic": 108,
+      "diastolic": 68,
+      "pulse": 62,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "measured_at": "2025-12-03T09:00:00+00:00",
+      "systolic": 110,
+      "diastolic": 70,
+      "pulse": 60,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0002-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "measured_at": "2025-09-04T09:00:00+00:00",
+      "systolic": 112,
+      "diastolic": 72,
+      "pulse": 61,
+      "position": "sitting",
+      "arm": "left"
+    },
+    {
+      "id": "b100b100-0002-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "measured_at": "2025-03-03T09:00:00+00:00",
+      "systolic": 110,
+      "diastolic": 68,
+      "pulse": 60,
+      "position": "sitting",
+      "arm": "left"
+    }
+  ],
+  "health_blood_work": [
+    {
+      "id": "b100d100-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "test_date": "2026-01-02",
+      "test_name": "Hemoglobin",
+      "value": 10.2,
+      "unit": "g/dL",
+      "reference_range": "12.0-16.0",
+      "is_abnormal": true,
+      "loinc_code": "718-7",
+      "panel_name": "CBC",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "test_date": "2026-01-02",
+      "test_name": "Ferritin",
+      "value": 6.0,
+      "unit": "ng/mL",
+      "reference_range": "12-150",
+      "is_abnormal": true,
+      "loinc_code": "2276-4",
+      "panel_name": "Iron Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0002-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "test_date": "2026-01-02",
+      "test_name": "Serum Iron",
+      "value": 42.0,
+      "unit": "ug/dL",
+      "reference_range": "60-170",
+      "is_abnormal": true,
+      "loinc_code": "2498-4",
+      "panel_name": "Iron Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0002-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "test_date": "2026-01-02",
+      "test_name": "Vitamin D, 25-hydroxy",
+      "value": 14.0,
+      "unit": "ng/mL",
+      "reference_range": "30-100",
+      "is_abnormal": true,
+      "loinc_code": "1989-3",
+      "panel_name": "Vitamin D",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0002-4001-8001-000000000005",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "test_date": "2026-01-02",
+      "test_name": "Total Cholesterol",
+      "value": 158.0,
+      "unit": "mg/dL",
+      "reference_range": "<200",
+      "is_abnormal": false,
+      "loinc_code": "2093-3",
+      "panel_name": "Lipid Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0002-4001-8001-000000000006",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "test_date": "2026-01-02",
+      "test_name": "Thyroid Stimulating Hormone",
+      "value": 2.1,
+      "unit": "mIU/L",
+      "reference_range": "0.4-4.0",
+      "is_abnormal": false,
+      "loinc_code": "3016-3",
+      "panel_name": "Thyroid",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0002-4001-8001-000000000007",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "test_date": "2024-12-28",
+      "test_name": "Hemoglobin",
+      "value": 9.4,
+      "unit": "g/dL",
+      "reference_range": "12.0-16.0",
+      "is_abnormal": true,
+      "loinc_code": "718-7",
+      "panel_name": "CBC",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    },
+    {
+      "id": "b100d100-0002-4001-8001-000000000008",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "test_date": "2024-12-28",
+      "test_name": "Ferritin",
+      "value": 4.0,
+      "unit": "ng/mL",
+      "reference_range": "12-150",
+      "is_abnormal": true,
+      "loinc_code": "2276-4",
+      "panel_name": "Iron Panel",
+      "lab_name": "Ferrara Regional Laboratory",
+      "notes": "Ordered by Dr. Torrella"
+    }
+  ],
+  "health_metrics": [
+    {
+      "id": "e71ca1ce-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "metric_type": "weight",
+      "value": 52,
+      "unit": "kg",
+      "recorded_at": "2026-02-01T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "metric_type": "weight",
+      "value": 51,
+      "unit": "kg",
+      "recorded_at": "2025-12-03T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0002-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "metric_type": "weight",
+      "value": 52,
+      "unit": "kg",
+      "recorded_at": "2025-09-04T09:00:00+00:00",
+      "source": "manual"
+    },
+    {
+      "id": "e71ca1ce-0002-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "metric_type": "weight",
+      "value": 50,
+      "unit": "kg",
+      "recorded_at": "2025-03-03T09:00:00+00:00",
+      "source": "manual"
+    }
+  ],
+  "health_family_history": [
+    {
+      "id": "fa1ffa1f-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "relationship": "mother",
+      "condition_name": "Iron deficiency anemia",
+      "icd10_code": "D50.9",
+      "age_at_onset": 35,
+      "vital_status": "deceased",
+      "notes": "Chronic anemia"
+    },
+    {
+      "id": "fa1ffa1f-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "relationship": "father",
+      "condition_name": "Hypertension",
+      "icd10_code": "I10",
+      "age_at_onset": 60,
+      "vital_status": "deceased",
+      "notes": null
+    }
+  ],
+  "health_social_history": [
+    {
+      "id": "50c150c1-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "category": "tobacco_use",
+      "status": "never",
+      "detail": "Non-smoker",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "category": "alcohol_use",
+      "status": "never",
+      "detail": "Does not drink",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0002-4001-8001-000000000003",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "category": "employment",
+      "status": "current",
+      "detail": "Innkeeper and estate manager; significant responsibilities",
+      "quantity": null
+    },
+    {
+      "id": "50c150c1-0002-4001-8001-000000000004",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "category": "exercise",
+      "status": "current",
+      "detail": "Light gardening; limited aerobic activity",
+      "quantity": null
+    }
+  ],
+  "health_vaccinations": [
+    {
+      "id": "7acc7acc-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "vaccine_name": "Influenza, seasonal, injectable, preservative free",
+      "administered_date": "2025-09-24",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    },
+    {
+      "id": "7acc7acc-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "vaccine_name": "SARS-COV-2 mRNA vaccine, 100 mcg/0.5 mL dose",
+      "administered_date": "2022-11-19",
+      "site": "left deltoid",
+      "administered_by": "Dr. Torrella"
+    }
+  ],
+  "health_observations": [
+    {
+      "id": "0b5e0b5e-0002-4001-8001-000000000001",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "observed_at": "2026-01-02T10:00:00+00:00",
+      "category": "nutrition",
+      "content": "Patient reports eating very little; mainly dark broths, herbs. Caloric intake consistently below 1200 kcal/day. Nutritional counseling offered; declined.",
+      "severity": 3
+    },
+    {
+      "id": "0b5e0b5e-0002-4001-8001-000000000002",
+      "user_id": "b015b015-0001-0001-0002-b00000000002",
+      "observed_at": "2025-08-15T10:00:00+00:00",
+      "category": "general",
+      "content": "Pallor noted on exam. Fatigue on exertion. Ferritin critically low. Initiated iron supplementation.",
+      "severity": 2
+    }
+  ]
+}

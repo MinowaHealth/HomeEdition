@@ -1,0 +1,74 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+# Only lint the service directories that contain Python source code
+include = [
+    "UserApp/**/*.py",
+    "UserMCP/**/*.py",
+]
+
+[tool.ruff.lint]
+# Selects: default (E, F) plus S (flake8-bandit) for security lint.
+# 4thDegree.md Track 8 — security family enabled to remove "we already lint" as
+# a reason not to add custom AST checks. False-positive-heavy categories are
+# globally ignored below; per-file ignores cover well-justified exceptions.
+select = ["E", "F", "S", "TID251"]
+# E501: line too long (handled by line-length setting)
+# F401: unused import (too noisy until codebase is cleaned up)
+# E402: module level import not at top (Flask patterns need this)
+# F841: local variable assigned but never used (noisy in WIP code)
+# S101: assert used (fine in tests and Flask debug guards; matches Bandit B101)
+# S104: binding to 0.0.0.0 (Docker; matches Bandit B104)
+# S105: hardcoded password string (false-positive heavy on test fixtures)
+# S110: try/except/pass (intentional in cleanup/teardown paths)
+# S112: try/except/continue (intentional in batch processing loops)
+# S603/S607: subprocess use (we accept this; vetted call sites)
+# S608: SQL injection from f-string (heavy false positives on parameterized SQL;
+#       schema-comparison and migration tools build SQL strings legitimately)
+# S311: pseudo-random for crypto (we audit individual sites; not all PRNG use is crypto)
+ignore = ["E501", "F401", "E402", "F841", "S101", "S104", "S105", "S110", "S112", "S603", "S607", "S608", "S311"]
+
+[tool.bandit]
+# Scan all Python service directories
+targets = [
+    "UserApp",
+    "UserMCP",
+]
+# 4thDegree.md Track 8 — CI runs at Low+ severity (`-l`). Skip categories with
+# heavy false positives so the signal stays useful.
+# B101: assert used (fine in tests and Flask debug guards)
+# B104: binding to 0.0.0.0 (Docker containers need this; network policy handles exposure)
+# B105: hardcoded-password-string (false positives on literal 'password' in test/livetest)
+# B110: try/except/pass (intentional in DB cleanup/teardown)
+# B112: try/except/continue (intentional in batch loops)
+# B311: pseudo-random — non-crypto uses (jitter, sampling) audited individually
+# B608: SQL injection (parameterized SQL built via composition triggers FPs)
+skips = ["B101", "B104", "B105", "B110", "B112", "B311", "B608"]
+# Exclude test files and generated code from security scanning
+exclude_dirs = ["tests", "test_*", ".venv", "__pycache__"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# CLAUDE.md "Database driver" rule — psycopg 3 is end-to-end; psycopg2 is banned.
+# Selecting TID251 only (not the full TID family) avoids surprise on relative imports.
+"psycopg2".msg = "Use psycopg (v3). See CLAUDE.md 'Database driver' rule."
+"psycopg2-binary".msg = "Use psycopg (v3). See CLAUDE.md 'Database driver' rule."
+"psycopg2.extras".msg = "Use psycopg.rows.dict_row + psycopg.sql in psycopg 3."
+"psycopg2.pool".msg = "Use psycopg_pool.ConnectionPool in psycopg 3."
+
+[tool.ruff.lint.per-file-ignores]
+# F811: re-imports inside functions (Flask route pattern using local imports)
+"UserApp/webapp/app.py" = ["F811"]
+# E722: bare except (low-risk data parsing; clean up later)
+"UserApp/webapp/routes/analytics.py" = ["E722"]
+"UserApp/webapp/routes/integrations.py" = ["E722"]
+# Test files: S106 hardcoded password func args is normal for fixtures
+"**/tests/**/*.py" = ["S106", "S107", "S113"]
+# livetest scripts: dev-time smoke tests calling internal HTTPS endpoints
+"UserApp/livetest/**/*.py" = ["S106", "S107", "S310"]
+"UserMCP/livetest/**/*.py" = ["S106", "S107", "S310"]
+# TestData seeders: dev-time fixture loaders calling the local API
+"TestData/**/*.py" = ["S106", "S107", "S310"]

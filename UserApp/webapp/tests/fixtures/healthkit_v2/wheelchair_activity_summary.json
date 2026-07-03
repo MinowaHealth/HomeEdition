@@ -1,0 +1,17 @@
+{
+  "payload_version": 2,
+  "characteristics": {
+    "wheelchair_use": true
+  },
+  "activity_summaries": [
+    {
+      "date": "2026-04-09",
+      "active_energy_burned": 420,
+      "active_energy_burned_goal": 500,
+      "stand_hours": 11,
+      "stand_hours_goal": 12,
+      "move_time": 38,
+      "move_time_goal": 30
+    }
+  ]
+}

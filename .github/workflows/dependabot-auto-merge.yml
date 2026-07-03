@@ -1,0 +1,43 @@
+name: Auto-merge Dependabot patch updates
+
+# Runs against every PR opened or updated by dependabot[bot]. If the
+# update-type is a single-package patch (X.Y.Z → X.Y.Z+1) OR the PR
+# represents a grouped patch update, this workflow enables GitHub's
+# native auto-merge so the PR merges automatically once required CI
+# checks pass. Minor and major updates still require human review.
+#
+# Why patch is auto-mergeable:
+#   - Semantic-versioning convention: patches are bug-fix-only, no API
+#     changes, no behavior changes (in theory).
+#   - CI must still pass — auto-merge is a "merge when checks green"
+#     directive, not a check bypass. If pip-audit, pyright, or the
+#     test suite fail, the PR sits.
+#
+# Security note: pull_request_target runs in the context of the BASE
+# branch, not the PR head, so this workflow can read repo secrets but
+# does not execute untrusted code from the PR. We only call gh and
+# dependabot/fetch-metadata, neither of which executes PR content.
+
+on:
+  pull_request_target:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+
+      - name: Enable auto-merge for patch updates
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

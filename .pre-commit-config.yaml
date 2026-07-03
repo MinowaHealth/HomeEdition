@@ -1,0 +1,48 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        entry: .venv/bin/pyright
+        language: system
+        pass_filenames: false
+        files: ^UserApp/webapp/(auth|db_manager|embedding_utils)\.py$
+        types: [python]
+
+      - id: code-query-audit
+        name: Code SQL Usage Audit (vs schema source of truth)
+        entry: DataModel3/run_code_query_audit.sh
+        language: system
+        pass_filenames: false
+        # Trigger when any Python source or the schema file is staged.
+        # Doctrine: DataModel3/CodeQueryAudit.md
+        files: '\.py$|^Infrastructure/init/docker-init-home/02-home_schema\.sql$'
+
+      - id: route-spec-audit
+        name: Route ↔ OpenAPI spec drift audit
+        # Fires when route declarations, the OpenAPI spec, or the audit
+        # allowlist change. Catches new endpoints that didn't get added
+        # to either the spec or the deferred-scope allowlist.
+        # Doctrine: APIDocumentation/ContractTestingCadence.md
+        entry: .venv/bin/python APIDocumentation/route_spec_audit.py
+        language: system
+        pass_filenames: false
+        files: '^(UserApp/webapp/(app|auth)\.py|UserApp/webapp/routes/.*\.py|APIDocumentation/openapi\.yaml|APIDocumentation/route_audit_allowlist\.txt)$'
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.3
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml]
+        additional_dependencies: ["bandit[toml]"]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

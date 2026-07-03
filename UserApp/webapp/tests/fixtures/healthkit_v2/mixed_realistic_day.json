@@ -1,0 +1,137 @@
+{
+  "payload_version": 2,
+  "characteristics": {
+    "date_of_birth": "1978-03-14",
+    "biological_sex": "male",
+    "blood_type": "O+",
+    "fitzpatrick_skin_type": "III",
+    "wheelchair_use": false
+  },
+  "sources": [
+    {
+      "source_name": "Apple Watch",
+      "source_bundle_id": "com.apple.health",
+      "source_version": "18.3",
+      "device_name": "My Apple Watch",
+      "device_model": "Watch6,5"
+    },
+    {
+      "source_name": "iPhone",
+      "source_bundle_id": "com.apple.health",
+      "source_version": "18.3",
+      "device_name": "My iPhone",
+      "device_model": "iPhone15,3"
+    },
+    {
+      "source_name": "Omron Connect",
+      "source_bundle_id": "com.omronhealthcare.omronconnect",
+      "source_version": "7.6.0",
+      "device_name": "Omron 10 Series",
+      "device_model": "BP7450"
+    }
+  ],
+  "activity_summaries": [
+    {
+      "date": "2026-04-09",
+      "active_energy_burned": 590,
+      "active_energy_burned_goal": 550,
+      "exercise_time": 48,
+      "exercise_time_goal": 30,
+      "stand_hours": 12,
+      "stand_hours_goal": 12
+    }
+  ],
+  "workouts": [
+    {
+      "workout_type": "HKWorkoutActivityTypeRunning",
+      "start": "2026-04-09T06:32:00Z",
+      "end": "2026-04-09T07:08:00Z",
+      "duration_seconds": 2160,
+      "total_distance": 5840,
+      "total_distance_unit": "m",
+      "total_energy_burned": 412,
+      "total_energy_burned_unit": "kcal",
+      "source_ref": 0,
+      "metadata": {"HKAverageMETs": 8.2, "HKIndoorWorkout": false},
+      "route": [
+        {"lat": 41.0828, "lon": -95.9450, "ts": "2026-04-09T06:32:05Z", "alt": 315.2},
+        {"lat": 41.0858, "lon": -95.9481, "ts": "2026-04-09T06:36:00Z", "alt": 319.0}
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "type_identifier": "HKQuantityTypeIdentifierStepCount",
+      "value": 8421,
+      "unit": "count",
+      "start": "2026-04-09T00:00:00Z",
+      "end": "2026-04-09T23:59:59Z",
+      "source_ref": 1,
+      "metadata": {}
+    },
+    {
+      "type_identifier": "HKQuantityTypeIdentifierRestingHeartRate",
+      "value": 58,
+      "unit": "count/min",
+      "start": "2026-04-09T00:00:00Z",
+      "end": "2026-04-09T23:59:59Z",
+      "source_ref": 0,
+      "metadata": {"HKMetadataKeyAlgorithmVersion": "3"}
+    },
+    {
+      "type_identifier": "HKQuantityTypeIdentifierHeartRate",
+      "value": 71,
+      "unit": "count/min",
+      "start": "2026-04-09T14:00:00Z",
+      "end": "2026-04-09T14:00:00Z",
+      "source_ref": 0,
+      "metadata": {"HKMetadataKeyHeartRateMotionContext": "sedentary"}
+    },
+    {
+      "type_identifier": "HKQuantityTypeIdentifierHeartRate",
+      "value": 172,
+      "unit": "count/min",
+      "start": "2026-04-09T06:45:00Z",
+      "end": "2026-04-09T06:45:00Z",
+      "source_ref": 0,
+      "metadata": {"HKMetadataKeyHeartRateMotionContext": "active"}
+    },
+    {
+      "type_identifier": "HKQuantityTypeIdentifierBodyMass",
+      "value": 82.4,
+      "unit": "kg",
+      "start": "2026-04-09T07:15:00Z",
+      "end": "2026-04-09T07:15:00Z",
+      "source_ref": 1,
+      "metadata": {}
+    },
+    {
+      "type_identifier": "HKCategoryTypeIdentifierSleepAnalysis",
+      "value": 1,
+      "unit": "count",
+      "start": "2026-04-08T23:30:00Z",
+      "end": "2026-04-09T06:15:00Z",
+      "source_ref": 0,
+      "metadata": {"HKCategoryValueSleepAnalysis": "HKCategoryValueSleepAnalysisAsleepCore"}
+    },
+    {
+      "type_identifier": "HKCorrelationTypeIdentifierBloodPressure",
+      "start": "2026-04-09T08:15:00Z",
+      "end": "2026-04-09T08:15:00Z",
+      "source_ref": 2,
+      "metadata": {"HKMetadataKeyExternalUUID": "omron-abc123"},
+      "components": [
+        {
+          "type_identifier": "HKQuantityTypeIdentifierBloodPressureSystolic",
+          "value": 122,
+          "unit": "mmHg"
+        },
+        {
+          "type_identifier": "HKQuantityTypeIdentifierBloodPressureDiastolic",
+          "value": 78,
+          "unit": "mmHg"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "Example Claude Desktop config for UserMCP.",
+    "",
+    "1. Create an API key:  ./get-token.sh",
+    "2. Copy the relevant block below into your Claude Desktop config at:",
+    "   ~/Library/Application Support/Claude/claude_desktop_config.json",
+    "3. Replace YOUR_API_KEY with the hbk_ key from step 1.",
+    "4. Restart Claude Desktop.",
+    "",
+    "API keys do not expire. Run ./get-token.sh to create one."
+  ],
+
+  "mcpServers": {
+
+    "usermcp-local": {
+      "_comment": "UserMCP on localhost:13282",
+      "command": "npx",
+      "args": [
+        "-y", "supergateway",
+        "--sse", "http://localhost:13282/sse",
+        "--header", "authorization:Bearer YOUR_API_KEY"
+      ]
+    }
+  }
+}

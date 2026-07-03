@@ -1,0 +1,38 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "stubPath": "typings",
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Linux",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": false,
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownParameterType": false,
+  "reportCallIssue": "warning",
+  "reportArgumentType": "warning",
+  "reportAttributeAccessIssue": "warning",
+  "strict": [
+    "UserApp/webapp/validate_env.py"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "UserApp",
+      "extraPaths": [
+        "webapp",
+        "webapp/tests",
+        "tests",
+        "livetest"
+      ]
+    },
+    {
+      "root": "UserMCP",
+      "extraPaths": [
+        "tests"
+      ]
+    }
+  ]
+}
