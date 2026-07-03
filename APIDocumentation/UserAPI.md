@@ -70,6 +70,7 @@ Required: `name`, `input_type` (medication | supplement | alternative | treatmen
 Optional:
 - `frequent_status` — `null` (default), `"detected"` (system-set), or `"sticky"` (user-pinned, never auto-demoted)
 - `doses_per_day` — `null` (unspecified, frontend treats as 1), `-1` (PRN/as-needed), `1`–`4` (fixed daily doses). Invalid values return 400.
+- `default_unit` — canonical vocabulary: `ug`, `mg`, `g`, `ml`, `oz` (mass/volume), `iu` (potency), `spray`, `patch`, `application`, `drop`, `puff`, `tablet`, `capsule`, `unit` (dose forms). Common aliases are normalized server-side (`mcg`/`µg` → `ug`, `IU` → `iu`, `mL` → `ml`, case-folding, plurals like `tablets` → `tablet`). Anything else returns 400 with code `INVALID_UNIT`. Empty string and `null` both store null. The same rules apply on PUT when the field is present.
 
 **Response (201):**
 ```json

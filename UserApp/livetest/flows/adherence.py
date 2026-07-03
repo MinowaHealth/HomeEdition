@@ -41,7 +41,9 @@ class AdherenceFlow(Flow):
                 "name": name,
                 "input_type": itype,
                 "default_dosage": "1",
-                "default_unit": "dose",
+                # 'dose' is not a canonical unit (reserved HealthKit magic
+                # value) — tablet is the closest real dose form.
+                "default_unit": "tablet",
                 "doses_per_day": doses_per_day,
             },
             timeout=self.cfg.timeout,

@@ -1414,6 +1414,17 @@ components:
         -1 means "as needed" (PRN); 1–4 are explicit daily dose counts;
         null means unspecified.
 
+    DosageUnit:
+      type:
+        - string
+        - "null"
+      enum: [ug, mg, g, ml, oz, iu, spray, patch, application, drop, puff, tablet, capsule, unit, null]
+      description: |
+        Canonical dosage unit. On write, common aliases are normalized
+        server-side (`mcg`/`µg` → `ug`, `IU` → `iu`, `mL` → `ml`,
+        case-folding, plural forms); anything else is rejected with
+        400 `INVALID_UNIT`. Empty string and null both store null.
+
     HealthInput:
       type: object
       required: [id, name, input_type]
@@ -1430,9 +1441,7 @@ components:
             - string
             - "null"
         default_unit:
-          type:
-            - string
-            - "null"
+          $ref: "#/components/schemas/DosageUnit"
         brand:
           type:
             - string
@@ -1476,7 +1485,7 @@ components:
         default_dosage:
           type: string
         default_unit:
-          type: string
+          $ref: "#/components/schemas/DosageUnit"
         brand:
           type: string
         form:
@@ -1515,9 +1524,7 @@ components:
             - string
             - "null"
         default_unit:
-          type:
-            - string
-            - "null"
+          $ref: "#/components/schemas/DosageUnit"
         brand:
           type:
             - string

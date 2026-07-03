@@ -1463,7 +1463,7 @@ class TestGetAdherence:
             'id': uuid.uuid4(),
             'name': 'VitaminD',
             'input_type': 'supplement',
-            'default_unit': 'IU',
+            'default_unit': 'iu',
             'doses_per_day': None,
             'direct_timeframe_id': None,
             'timeframes': [],

@@ -32,7 +32,7 @@ class TestGetHealthInputs:
                 'form': 'softgel',
                 'brand': 'NatureMade',
                 'take_with_food': True,
-                'default_unit': 'IU',
+                'default_unit': 'iu',
                 'created_at': datetime(2026, 1, 1),
                 'updated_at': datetime(2026, 1, 1),
             }
@@ -520,6 +520,161 @@ class TestGetTimeframesFormat:
         resp = client.get('/api/v1/timeframes', headers=auth_headers)
         assert resp.status_code == 200
         assert resp.get_json()[0]['time_of_day'] == '08:00'
+
+
+class TestUnitNormalization:
+    """default_unit is normalized through units.normalize_unit on write."""
+
+    EXISTING = {
+        'name': 'Vitamin D3', 'input_type': 'supplement',
+        'default_dosage': '5000', 'default_unit': 'iu',
+        'brand': None, 'form': 'softgel',
+        'is_active': True, 'take_with_food': False,
+        'notes': None, 'instructions': None,
+        'custom_fields': None, 'doses_per_day': None,
+        'frequent_status': None, 'timeframe_id': None,
+    }
+
+    @staticmethod
+    def _insert_params(cur):
+        call = next(
+            c for c in cur.execute.call_args_list
+            if c.args and 'INSERT INTO health_inputs' in c.args[0]
+        )
+        return call.args[1]
+
+    @staticmethod
+    def _update_params(cur):
+        call = next(
+            c for c in cur.execute.call_args_list
+            if c.args and 'UPDATE health_inputs' in c.args[0]
+        )
+        return call.args[1]
+
+    def test_post_normalizes_alias(self, client, mock_db, auth_headers):
+        """POST with 'MCG' stores canonical 'ug'."""
+        conn, cur = mock_db
+        cur.fetchone.return_value = {'id': str(uuid.uuid4())}
+        payload = {'name': 'B12', 'input_type': 'supplement',
+                   'default_unit': 'MCG'}
+
+        resp = client.post('/api/v1/health-inputs', headers=auth_headers,
+                           data=json.dumps(payload))
+        assert resp.status_code == 201
+        assert 'ug' in self._insert_params(cur)
+        assert 'MCG' not in self._insert_params(cur)
+
+    def test_post_rejects_unknown_unit(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        payload = {'name': 'B12', 'input_type': 'supplement',
+                   'default_unit': 'furlong'}
+
+        resp = client.post('/api/v1/health-inputs', headers=auth_headers,
+                           data=json.dumps(payload))
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert body['code'] == 'INVALID_UNIT'
+        assert 'mg' in body['error']
+
+    def test_post_empty_unit_stores_null(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchone.return_value = {'id': str(uuid.uuid4())}
+        payload = {'name': 'B12', 'input_type': 'supplement',
+                   'default_unit': ''}
+
+        resp = client.post('/api/v1/health-inputs', headers=auth_headers,
+                           data=json.dumps(payload))
+        assert resp.status_code == 201
+        assert None in self._insert_params(cur)
+        assert '' not in self._insert_params(cur)
+
+    def test_put_normalizes_alias(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.rowcount = 1
+        cur.fetchone.return_value = dict(self.EXISTING)
+        payload = {'name': 'Vitamin D3', 'input_type': 'supplement',
+                   'default_unit': 'IU'}
+
+        resp = client.put(f'/api/v1/health-inputs/{uuid.uuid4()}',
+                          headers=auth_headers, data=json.dumps(payload))
+        assert resp.status_code == 200
+        assert 'iu' in self._update_params(cur)
+        assert 'IU' not in self._update_params(cur)
+
+    def test_put_rejects_unknown_unit(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchone.return_value = dict(self.EXISTING)
+        payload = {'name': 'Vitamin D3', 'input_type': 'supplement',
+                   'default_unit': 'tbd'}
+
+        resp = client.put(f'/api/v1/health-inputs/{uuid.uuid4()}',
+                          headers=auth_headers, data=json.dumps(payload))
+        assert resp.status_code == 400
+        assert resp.get_json()['code'] == 'INVALID_UNIT'
+        conn.close.assert_called()
+
+    def test_put_omitted_unit_keeps_legacy_value(self, client, mock_db, auth_headers):
+        """PUT without default_unit passes a legacy stored value through
+        unchanged — non-canonical rows stay updatable for other fields."""
+        conn, cur = mock_db
+        cur.rowcount = 1
+        existing = dict(self.EXISTING, default_unit='tbd')
+        cur.fetchone.return_value = existing
+        payload = {'name': 'Vitamin D3', 'input_type': 'supplement',
+                   'notes': 'take in the morning'}
+
+        resp = client.put(f'/api/v1/health-inputs/{uuid.uuid4()}',
+                          headers=auth_headers, data=json.dumps(payload))
+        assert resp.status_code == 200
+        assert 'tbd' in self._update_params(cur)
+
+
+class TestUnitNormalizationV2:
+    """v2 endpoints share the same normalization; embedding is patched out."""
+
+    def test_post_normalizes_alias(self, client, mock_db, auth_headers):
+        from unittest.mock import patch as mock_patch
+        conn, cur = mock_db
+        cur.fetchone.return_value = {'id': str(uuid.uuid4())}
+        payload = {'name': 'B12', 'input_type': 'supplement',
+                   'default_unit': 'µg'}
+
+        with mock_patch('routes.health_inputs_v2.embed_field',
+                        return_value=None) as embed:
+            resp = client.post('/api/v2/health-inputs', headers=auth_headers,
+                               data=json.dumps(payload))
+        assert resp.status_code == 201
+        embed.assert_called_once()
+        insert_call = next(
+            c for c in cur.execute.call_args_list
+            if c.args and 'INSERT INTO health_inputs' in c.args[0]
+        )
+        assert 'ug' in insert_call.args[1]
+
+    def test_post_rejects_unknown_unit_before_embedding(self, client, mock_db,
+                                                        auth_headers):
+        from unittest.mock import patch as mock_patch
+        conn, cur = mock_db
+        payload = {'name': 'B12', 'input_type': 'supplement',
+                   'default_unit': 'furlong'}
+
+        with mock_patch('routes.health_inputs_v2.embed_field') as embed:
+            resp = client.post('/api/v2/health-inputs', headers=auth_headers,
+                               data=json.dumps(payload))
+        assert resp.status_code == 400
+        assert resp.get_json()['code'] == 'INVALID_UNIT'
+        embed.assert_not_called()
+
+    def test_put_rejects_unknown_unit(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchone.return_value = dict(TestUnitNormalization.EXISTING)
+        payload = {'name': 'Vitamin D3', 'input_type': 'supplement',
+                   'default_unit': 'dose'}
+
+        resp = client.put(f'/api/v2/health-inputs/{uuid.uuid4()}',
+                          headers=auth_headers, data=json.dumps(payload))
+        assert resp.status_code == 400
+        assert resp.get_json()['code'] == 'INVALID_UNIT'
 
 
 class TestDeleteTimeframeOrphans:

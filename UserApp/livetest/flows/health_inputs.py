@@ -43,7 +43,8 @@ class HealthInputsFlow(Flow):
                     "name": name,
                     "input_type": "supplement",
                     "default_dosage": "1000",
-                    "default_unit": "iu",
+                    # Alias on purpose — the server must normalize 'IU' -> 'iu'
+                    "default_unit": "IU",
                     "category": "supplement",
                 },
                 timeout=self.cfg.timeout,
@@ -65,6 +66,18 @@ class HealthInputsFlow(Flow):
             assert after == before + 1, (
                 f"delta {after - before}, expected 1 "
                 f"(before={before}, after={after})"
+            )
+
+        with self.step("verify default_unit normalized to canonical 'iu'"):
+            cur.execute(
+                "SELECT default_unit FROM health_inputs "
+                "WHERE tenant_id=%s AND user_id=%s AND id=%s",
+                (self.cfg.tenant_id, self.user_id, input_id),
+            )
+            row = cur.fetchone()
+            assert row is not None, f"health_input {input_id} not found in DB"
+            assert row["default_unit"] == "iu", (
+                f"expected normalized 'iu', got {row['default_unit']!r}"
             )
 
         with self.step("GET /api/v1/health-inputs includes created item"):

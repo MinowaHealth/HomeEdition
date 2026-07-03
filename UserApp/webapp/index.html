@@ -33,6 +33,32 @@
         // Use current host for API calls (works on any server)
         const API_BASE = `${window.location.protocol}//${window.location.host}/api/v1`;
 
+        // Canonical dosage units — mirrors CANONICAL_UNITS in webapp/units.py;
+        // keep the two in sync.
+        const DOSAGE_UNIT_GROUPS = [
+            { label: 'Mass / Volume', units: [
+                ['ug', 'Micrograms (ug)'],
+                ['mg', 'Milligrams (mg)'],
+                ['g', 'Grams (g)'],
+                ['ml', 'Milliliters (ml)'],
+                ['oz', 'Ounces (oz)'],
+            ]},
+            { label: 'Potency', units: [
+                ['iu', 'International Units (IU)'],
+            ]},
+            { label: 'Dose Forms', units: [
+                ['spray', 'Spray'],
+                ['patch', 'Patch'],
+                ['application', 'Application'],
+                ['drop', 'Drop'],
+                ['puff', 'Puff'],
+                ['tablet', 'Tablet'],
+                ['capsule', 'Capsule'],
+                ['unit', 'Unit (insulin)'],
+            ]},
+        ];
+        const DOSAGE_UNITS = DOSAGE_UNIT_GROUPS.flatMap(g => g.units.map(([value]) => value));
+
         // Wrapper for fetch that handles 401 responses by redirecting to login
         const apiFetch = async (url, options = {}) => {
             const response = await fetch(url, options);
@@ -728,7 +754,13 @@
 
             const handleEdit = (input) => {
                 setEditing(input.id);
-                setFormData(input);
+                // Legacy rows may hold a pre-standardization unit ('tbd', 'IU');
+                // blank it so the select shows a real state and saving can't 400.
+                const unit = input.default_unit || '';
+                setFormData({
+                    ...input,
+                    default_unit: DOSAGE_UNITS.includes(unit) ? unit : '',
+                });
             };
 
             const handleDelete = async (id) => {
@@ -787,12 +819,13 @@
                                 onChange={(e) => setFormData({ ...formData, default_unit: e.target.value })}
                             >
                                 <option value="">Select Unit</option>
-                                <option value="mg">Milligrams (mg)</option>
-                                <option value="g">Grams (g)</option>
-                                <option value="ml">Millilitres (ml)</option>
-                                <option value="spray">Spray</option>
-                                <option value="application">Application</option>
-                                <option value="tbd">TBD</option>
+                                {DOSAGE_UNIT_GROUPS.map(group => (
+                                    <optgroup key={group.label} label={group.label}>
+                                        {group.units.map(([value, label]) => (
+                                            <option key={value} value={value}>{label}</option>
+                                        ))}
+                                    </optgroup>
+                                ))}
                             </select>
                             <input
                                 type="text"

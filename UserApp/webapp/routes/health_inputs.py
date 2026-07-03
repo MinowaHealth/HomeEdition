@@ -18,6 +18,7 @@ from utils import (
     paginated_response,
 )
 import db_manager
+from units import normalize_unit
 from projection import (
     project_reminder_for_stack,
     project_reminder_for_health_input,
@@ -103,6 +104,11 @@ def create_health_input():
             current_app.logger.error("POST /health-inputs: Missing required field 'input_type'")
             return jsonify({'error': 'Missing required field: input_type'}), 400
 
+        try:
+            default_unit = normalize_unit(data.get('default_unit'))
+        except ValueError as e:
+            return jsonify({'error': str(e), 'code': 'INVALID_UNIT'}), 400
+
         conn = get_db_connection()
         current_app.logger.info("POST /health-inputs: database connection established")
         cur = conn.cursor()
@@ -140,7 +146,7 @@ def create_health_input():
             RETURNING id
         """, (
             tenant_id, input_id, user_id, data['name'], data['input_type'],
-            data.get('default_dosage'), data.get('default_unit'),
+            data.get('default_dosage'), default_unit,
             data.get('brand'), data.get('form'),
             parse_bool(data.get('is_active'), default=True),
             parse_bool(data.get('take_with_food'), default=False), data.get('notes'),
@@ -215,7 +221,17 @@ def update_health_input(input_id):
         name = data.get('name', existing['name'])
         input_type = data.get('input_type', existing['input_type'])
         default_dosage = data.get('default_dosage', existing['default_dosage'])
-        default_unit = data.get('default_unit', existing['default_unit'])
+        # Normalize only when the key is present — a legacy row with a
+        # non-canonical stored unit must stay updatable for other fields.
+        if 'default_unit' in data:
+            try:
+                default_unit = normalize_unit(data['default_unit'])
+            except ValueError as e:
+                cur.close()
+                conn.close()
+                return jsonify({'error': str(e), 'code': 'INVALID_UNIT'}), 400
+        else:
+            default_unit = existing['default_unit']
         brand = data.get('brand', existing['brand'])
         form = data.get('form', existing['form'])
         is_active = parse_bool(data.get('is_active'), default=existing['is_active'])
