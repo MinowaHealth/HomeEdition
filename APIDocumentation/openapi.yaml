@@ -253,6 +253,46 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/settings/unit-system:
+    patch:
+      operationId: setUnitSystem
+      tags: [account]
+      summary: Set the display unit system (imperial or metric)
+      description: |
+        Per-user display preference driving units for weight (lbs/kg),
+        temperature (F/C), and blood glucose (mg/dL / mmol/L). Storage is
+        unchanged — rows keep the unit they were entered in; GETs convert
+        to this preference on read.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unit_system]
+              properties:
+                unit_system:
+                  type: string
+                  enum: [imperial, metric]
+      responses:
+        "200":
+          description: Preference saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [unit_system]
+                properties:
+                  unit_system:
+                    type: string
+                    enum: [imperial, metric]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # Self-service signup and email-based password reset were removed in Home
   # Edition (no Mailgun / email flows). Accounts are provisioned and passwords
   # reset via the admin.py CLI; the authenticated in-app change-password
@@ -1272,6 +1312,10 @@ components:
           format: date-time
         is_developer:
           type: boolean
+        unit_system:
+          type: string
+          enum: [imperial, metric]
+          description: Display unit preference for weight, temperature, and blood glucose.
 
     ChangePasswordRequest:
       type: object

@@ -403,6 +403,7 @@ def get_session_info():
         'database': g.user['database_name'],
         'created_at': g.user.get('created_at'),
         'is_developer': g.user.get('is_developer', False),
+        'unit_system': g.user.get('unit_system', 'imperial'),
     })
 
 
@@ -462,6 +463,22 @@ def api_change_password():
     if error_message in {'User not found'}:
         return jsonify({'error': error_message}), 404
     return jsonify({'error': error_message}), 400
+
+
+@app.route('/api/v1/settings/unit-system', methods=['PATCH'])
+@app.route('/api/v2/settings/unit-system', methods=['PATCH'])
+@require_auth
+def api_set_unit_system():
+    """Set the user's display unit system (imperial or metric)."""
+    data = request.get_json(silent=True) or {}
+    unit_system = data.get('unit_system')
+    if unit_system not in ('imperial', 'metric'):
+        return jsonify({'error': "unit_system must be 'imperial' or 'metric'"}), 400
+
+    if not auth.set_unit_system(g.user['user_id'], unit_system, g.user.get('tenant_id', 1)):
+        return jsonify({'error': 'User not found'}), 404
+
+    return jsonify({'unit_system': unit_system})
 
 
 @app.route('/api/v1/mcp-config', methods=['GET'])

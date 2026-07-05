@@ -320,6 +320,28 @@ def change_password(user_id: str, current_password: str, new_password: str, tena
         conn.close()
 
 
+def set_unit_system(user_id: str, unit_system: str, tenant_id: int | None = None) -> bool:
+    """Set the user's display unit system ('imperial' or 'metric').
+
+    Returns True if a row was updated, False if the user wasn't found.
+    Caller validates the value; the DB CHECK constraint is the backstop.
+    """
+    if tenant_id is None:
+        tenant_id = DEFAULT_TENANT_ID
+
+    conn = get_admin_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE users SET unit_system = %s, updated_at = NOW() WHERE tenant_id = %s AND id = %s",
+            (unit_system, tenant_id, user_id)
+        )
+        conn.commit()
+        return cur.rowcount == 1
+    finally:
+        conn.close()
+
+
 def get_user_by_email(email: str, tenant_id: int | None = None) -> dict[str, Any] | None:
     """Fetch active user record by email from healthv10."""
     if tenant_id is None:

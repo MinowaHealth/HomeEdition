@@ -111,6 +111,16 @@
             localStorage.setItem('hb-actbar-size', size);
         };
 
+        // Measurement display preference (users.unit_system, server-side).
+        // Feeds the logging-form unit dropdown fallbacks; refreshed from /session.
+        const UNIT_FORM_DEFAULTS = { temp_unit: 'F', weight_unit: 'lbs', glucose_unit: 'mg/dL' };
+        const applyUnitSystem = (sys) => {
+            const metric = sys === 'metric';
+            UNIT_FORM_DEFAULTS.temp_unit = metric ? 'C' : 'F';
+            UNIT_FORM_DEFAULTS.weight_unit = metric ? 'kg' : 'lbs';
+            UNIT_FORM_DEFAULTS.glucose_unit = metric ? 'mmol/L' : 'mg/dL';
+        };
+
         // Utility function to get current time in Pacific Time for datetime-local input
         const getPacificTimeString = (date = new Date()) => {
             // Convert to Pacific Time
@@ -173,7 +183,10 @@
             useEffect(() => {
                 fetch(`${API_BASE}/session`)
                     .then(res => res.json())
-                    .then(data => setUsername(data.username || ''))
+                    .then(data => {
+                        setUsername(data.username || '');
+                        applyUnitSystem(data.unit_system);
+                    })
                     .catch(err => console.log('Could not fetch session'));
             }, []);
 
@@ -2107,6 +2120,9 @@
             const [apiKeyError, setApiKeyError] = useState(null);
             const [apiKeyCreating, setApiKeyCreating] = useState(false);
 
+            // Unit system state (server-side preference, users.unit_system)
+            const [unitSystem, setUnitSystem] = useState(null);
+
             // 2FA state
             const [twoFaStatus, setTwoFaStatus] = useState(null);
             const [twoFaLoading, setTwoFaLoading] = useState(true);
@@ -2162,10 +2178,37 @@
                     setApiKeysLoading(false);
                 };
 
+                const fetchUnitSystem = async () => {
+                    try {
+                        const response = await fetch(`${API_BASE}/session`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            setUnitSystem(data.unit_system || 'imperial');
+                        }
+                    } catch (err) {
+                        console.error('Failed to fetch unit system:', err);
+                    }
+                };
+
                 fetchMcpConfig();
                 fetch2FaStatus();
                 fetchApiKeys();
+                fetchUnitSystem();
             }, []);
+
+            const changeUnitSystem = async (value) => {
+                setUnitSystem(value);
+                applyUnitSystem(value);  // update logging-form defaults without a reload
+                try {
+                    await fetch(`${API_BASE}/settings/unit-system`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ unit_system: value }),
+                    });
+                } catch (err) {
+                    console.error('Failed to save unit system:', err);
+                }
+            };
 
             // API Key handlers
             const createApiKey = async () => {
@@ -2417,6 +2460,28 @@
                                                 // Force re-render
                                                 setPasswordForm({ ...passwordForm });
                                             }}
+                                        />
+                                        {opt.label}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '16px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600 }}>Units</label>
+                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                {[
+                                    { value: 'imperial', label: 'Imperial (lbs, °F, mg/dL)' },
+                                    { value: 'metric', label: 'Metric (kg, °C, mmol/L)' },
+                                ].map(opt => (
+                                    <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                        <input
+                                            type="radio"
+                                            name="unit-system"
+                                            value={opt.value}
+                                            checked={unitSystem === opt.value}
+                                            disabled={unitSystem === null}
+                                            onChange={(e) => changeUnitSystem(e.target.value)}
                                         />
                                         {opt.label}
                                     </label>
@@ -3102,11 +3167,8 @@
                 diastolic: '',
                 heart_rate: '',
                 temperature: '',
-                temp_unit: 'F',
                 weight: '',
-                weight_unit: 'lbs',
                 blood_glucose: '',
-                glucose_unit: 'mg/dL',
                 timestamp: getPacificTimeString()
             });
 
@@ -3251,7 +3313,7 @@
                         endpoint = 'temperature';
                         payload = {
                             temperature: formData.temperature,
-                            unit: formData.temp_unit || 'F',
+                            unit: formData.temp_unit || UNIT_FORM_DEFAULTS.temp_unit,
                             timestamp: submitTimestamp
                         };
                         console.log('Temperature payload:', payload);
@@ -3259,7 +3321,7 @@
                         endpoint = 'weight';
                         payload = {
                             weight: formData.weight,
-                            unit: formData.weight_unit || 'lbs',
+                            unit: formData.weight_unit || UNIT_FORM_DEFAULTS.weight_unit,
                             timestamp: submitTimestamp
                         };
                         console.log('Weight payload:', payload);
@@ -3267,7 +3329,7 @@
                         endpoint = 'blood-glucose';
                         payload = {
                             blood_glucose: formData.blood_glucose,
-                            unit: formData.glucose_unit || 'mg/dL',
+                            unit: formData.glucose_unit || UNIT_FORM_DEFAULTS.glucose_unit,
                             timestamp: submitTimestamp
                         };
                     } else {
@@ -3795,7 +3857,7 @@
                                     required
                                 />
                                 <select
-                                    value={formData.temp_unit || 'F'}
+                                    value={formData.temp_unit || UNIT_FORM_DEFAULTS.temp_unit}
                                     onChange={(e) => setFormData({ ...formData, temp_unit: e.target.value })}
                                 >
                                     <option value="F">Fahrenheit (°F)</option>
@@ -3813,7 +3875,7 @@
                                     required
                                 />
                                 <select
-                                    value={formData.weight_unit || 'lbs'}
+                                    value={formData.weight_unit || UNIT_FORM_DEFAULTS.weight_unit}
                                     onChange={(e) => setFormData({ ...formData, weight_unit: e.target.value })}
                                 >
                                     <option value="lbs">Pounds (lbs)</option>
@@ -3831,7 +3893,7 @@
                                     required
                                 />
                                 <select
-                                    value={formData.glucose_unit || 'mg/dL'}
+                                    value={formData.glucose_unit || UNIT_FORM_DEFAULTS.glucose_unit}
                                     onChange={(e) => setFormData({ ...formData, glucose_unit: e.target.value })}
                                 >
                                     <option value="mg/dL">mg/dL</option>
