@@ -106,6 +106,7 @@ services:
       - ./UserApp/webapp/healthkit_worker.py:/app/healthkit_worker.py:ro
       - ./UserApp/webapp/nutrition_projection.py:/app/nutrition_projection.py:ro
       - ./UserApp/webapp/utils.py:/app/utils.py:ro
+      - ./UserApp/webapp/unit_conversion.py:/app/unit_conversion.py:ro
       - ./UserApp/webapp/logging_config.py:/app/logging_config.py:ro
       - ./UserApp/webapp/logging_middleware.py:/app/logging_middleware.py:ro
       - ./UserApp/webapp/routes:/app/routes:ro
