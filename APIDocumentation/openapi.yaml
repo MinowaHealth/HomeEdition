@@ -714,6 +714,54 @@ paths:
           $ref: "#/components/responses/Unauthorized"
 
   # ============================================================================
+  # VITALS — BLOOD GLUCOSE
+  # ============================================================================
+
+  /api/v1/blood-glucose:
+    get:
+      operationId: listBloodGlucose
+      tags: [vitals]
+      summary: List blood glucose readings (paginated, optional date range)
+      parameters:
+        - $ref: "#/components/parameters/startDate"
+        - $ref: "#/components/parameters/endDate"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated readings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BloodGlucoseList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      operationId: logBloodGlucose
+      tags: [vitals]
+      summary: Log a blood glucose reading
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BloodGlucoseCreate"
+      responses:
+        "201":
+          description: Reading logged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ============================================================================
   # VITALS — WEIGHT
   # ============================================================================
 
@@ -1681,6 +1729,51 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TemperatureReading"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # --- Vitals: blood glucose ----------------------------------------------
+
+    BloodGlucoseReading:
+      type: object
+      required: [id, blood_glucose, timestamp]
+      properties:
+        id:
+          type: string
+          format: uuid
+        blood_glucose:
+          type: number
+        unit:
+          type:
+            - string
+            - "null"
+        timestamp:
+          type:
+            - string
+            - "null"
+          format: date-time
+
+    BloodGlucoseCreate:
+      type: object
+      required: [timestamp, blood_glucose]
+      properties:
+        timestamp:
+          type: string
+          description: Local datetime string; server converts to UTC.
+        blood_glucose:
+          type: number
+        unit:
+          type: string
+          description: Defaults to `mg/dL` if omitted.
+
+    BloodGlucoseList:
+      type: object
+      required: [entries, pagination]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/BloodGlucoseReading"
         pagination:
           $ref: "#/components/schemas/Pagination"
 

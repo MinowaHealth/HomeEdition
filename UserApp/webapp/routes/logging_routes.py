@@ -725,6 +725,28 @@ def get_all_logs():
             'stack': None
         })
 
+    # Get blood glucose readings
+    cur.execute(sql.SQL("""
+        SELECT id, {time_col} AS recorded_at, value, unit
+        FROM health_metrics
+        WHERE tenant_id = %s AND user_id = %s AND metric_type = 'blood_glucose'
+        {deleted_prefix}
+        ORDER BY recorded_at DESC
+        LIMIT 100
+    """).format(
+        time_col=sql.Identifier(hm_time_col),
+        deleted_prefix=sql.SQL(hm_deleted_prefix),
+    ), (tenant_id, user_id))
+    glucose_logs = cur.fetchall()
+    for log in glucose_logs:
+        all_logs.append({
+            'id': str(log['id']),
+            'timestamp': log['recorded_at'].isoformat(),
+            'type': 'blood_glucose',
+            'description': f"Blood Glucose: {log['value']} {log['unit']}",
+            'stack': None
+        })
+
     # Get synced health metrics — exclude high-frequency telemetry (steps, heart_rate)
     # which can produce 1,000+ rows/day and drown out user-entered logs.
     # Steps/HR belong in the Analysis views, not the activity timeline.

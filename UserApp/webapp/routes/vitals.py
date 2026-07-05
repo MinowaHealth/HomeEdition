@@ -1,7 +1,7 @@
 """
 Vitals routes.
 
-Blueprint for blood pressure, temperature, weight, observations, and metric deletions.
+Blueprint for blood pressure, temperature, weight, blood glucose, observations, and metric deletions.
 """
 from flask import Blueprint, request, jsonify, g, current_app
 from db_driver import sql
@@ -246,6 +246,103 @@ def log_temperature():
     analytics.capture('temperature_recorded')
 
     return jsonify({'message': 'Temperature logged successfully'}), 201
+
+
+# ==================== BLOOD GLUCOSE ====================
+
+@bp.route('/blood-glucose', methods=['GET'])
+@require_auth
+def get_blood_glucose():
+    """Get a paginated list of blood glucose readings.
+
+    Optional query params: start_date, end_date (YYYY-MM-DD) for date filtering;
+    limit, offset for pagination.
+    """
+    from utils import parse_date_range_params
+    start_date, end_date, err = parse_date_range_params()
+    if err:
+        return err
+
+    limit, offset = parse_pagination_params()
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    conditions: list = [sql.SQL("tenant_id = %s AND user_id = %s"),
+                       sql.SQL("metric_type = 'blood_glucose'")]
+    params: list = [g.user.get('tenant_id', 1), get_user_id()]
+    if start_date:
+        conditions.append(sql.SQL("recorded_at >= %s"))
+        params.append(start_date)
+    if end_date:
+        conditions.append(sql.SQL("recorded_at < %s + INTERVAL '1 day'"))
+        params.append(end_date)
+
+    query = sql.SQL("""
+        SELECT count(*) OVER() AS _total,
+               id, recorded_at, value, unit
+        FROM health_metrics
+        WHERE {where}
+        ORDER BY recorded_at DESC
+        LIMIT %s OFFSET %s
+    """).format(where=sql.SQL(" AND ").join(conditions))
+
+    cur.execute(query, params + [limit, offset])
+
+    readings = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    total = readings[0]['_total'] if readings else 0
+    for reading in readings:
+        reading.pop('_total', None)
+        reading['id'] = str(reading['id'])
+        reading['blood_glucose'] = float(reading.pop('value'))
+        if reading.get('recorded_at'):
+            reading['timestamp'] = reading.pop('recorded_at').isoformat()
+
+    has_more = offset + len(readings) < total
+    resp = jsonify(paginated_response(readings, total, limit, offset, key='entries'))
+    if has_more:
+        resp.headers['X-Truncated'] = 'true'
+    return resp
+
+
+@bp.route('/blood-glucose', methods=['POST'])
+@require_auth
+def log_blood_glucose():
+    """Log a blood glucose reading"""
+    data = request.json
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    recorded_at = local_to_utc(data['timestamp'])
+    now = datetime.now(pytz.utc)
+
+    metric_id = uuid.uuid4()
+    cur.execute("""
+        INSERT INTO health_metrics
+        (tenant_id, id, user_id, recorded_at, metric_type, value, unit, created_at)
+        VALUES (%s, %s, %s, %s, 'blood_glucose', %s, %s, %s)
+    """, (
+        tenant_id,
+        metric_id,
+        user_id,
+        recorded_at,
+        float(data['blood_glucose']),
+        data.get('unit', 'mg/dL'),
+        now
+    ))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    analytics.capture('blood_glucose_recorded')
+
+    return jsonify({'message': 'Blood glucose logged successfully'}), 201
 
 
 # ==================== WEIGHT ====================

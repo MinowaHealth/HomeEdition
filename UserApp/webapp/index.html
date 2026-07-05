@@ -3105,6 +3105,8 @@
                 temp_unit: 'F',
                 weight: '',
                 weight_unit: 'lbs',
+                blood_glucose: '',
+                glucose_unit: 'mg/dL',
                 timestamp: getPacificTimeString()
             });
 
@@ -3261,6 +3263,13 @@
                             timestamp: submitTimestamp
                         };
                         console.log('Weight payload:', payload);
+                    } else if (logType === 'blood-glucose') {
+                        endpoint = 'blood-glucose';
+                        payload = {
+                            blood_glucose: formData.blood_glucose,
+                            unit: formData.glucose_unit || 'mg/dL',
+                            timestamp: submitTimestamp
+                        };
                     } else {
                         // health-input or alternative
                         endpoint = 'log-health-input';
@@ -3335,6 +3344,7 @@
                         break;
                     case 'temperature':
                     case 'weight':
+                    case 'blood_glucose':
                         endpoint = `health-metrics/${id}`;
                         break;
                     default:
@@ -3491,6 +3501,15 @@
                                     onChange={(e) => setLogType(e.target.value)}
                                 />
                                 Weight
+                            </label>
+                            <label>
+                                <input
+                                    type="radio"
+                                    value="blood-glucose"
+                                    checked={logType === 'blood-glucose'}
+                                    onChange={(e) => setLogType(e.target.value)}
+                                />
+                                Blood Sugar
                             </label>
                         </div>
                     )}
@@ -3801,6 +3820,24 @@
                                     <option value="kg">Kilograms (kg)</option>
                                 </select>
                             </div>
+                        ) : logType === 'blood-glucose' ? (
+                            <div className="form-row">
+                                <input
+                                    type="number"
+                                    step="1"
+                                    placeholder="Blood Sugar"
+                                    value={formData.blood_glucose || ''}
+                                    onChange={(e) => setFormData({ ...formData, blood_glucose: e.target.value })}
+                                    required
+                                />
+                                <select
+                                    value={formData.glucose_unit || 'mg/dL'}
+                                    onChange={(e) => setFormData({ ...formData, glucose_unit: e.target.value })}
+                                >
+                                    <option value="mg/dL">mg/dL</option>
+                                    <option value="mmol/L">mmol/L</option>
+                                </select>
+                            </div>
                         ) : null}
 
                         <div className="form-actions">
@@ -3814,7 +3851,8 @@
                                         'food-item': 'Log Food Item',
                                         'blood-pressure': 'Log Blood Pressure',
                                         'temperature': 'Log Temperature',
-                                        'weight': 'Log Weight'
+                                        'weight': 'Log Weight',
+                                        'blood-glucose': 'Log Blood Sugar'
                                     };
                                     return labels[logType] || 'Log Entry';
                                 })()}
@@ -3848,14 +3886,16 @@
                                                 log.type === 'blood_pressure' ? '#f44336' :
                                                     log.type === 'temperature' ? '#FF9800' :
                                                         log.type === 'weight' ? '#2196F3' :
-                                                            log.type === 'food' ? '#FF5722' : '#999',
+                                                            log.type === 'blood_glucose' ? '#9C27B0' :
+                                                                log.type === 'food' ? '#FF5722' : '#999',
                                             color: 'white'
                                         }}>
                                             {log.type === 'health_input' ? 'INPUT' :
                                                 log.type === 'blood_pressure' ? 'BP' :
                                                     log.type === 'temperature' ? 'TEMP' :
                                                         log.type === 'weight' ? 'WEIGHT' :
-                                                            log.type === 'food' ? 'FOOD' : log.type}
+                                                            log.type === 'blood_glucose' ? 'GLUCOSE' :
+                                                                log.type === 'food' ? 'FOOD' : log.type}
                                         </span>
                                     </td>
                                     <td>{log.description}</td>
