@@ -21,6 +21,7 @@ from utils import (
 )
 import analytics
 import db_manager
+from unit_conversion import DISPLAY_UNITS, to_display
 
 bp = Blueprint('vitals', __name__, url_prefix='/api/v1')
 
@@ -196,10 +197,12 @@ def get_temperature():
     conn.close()
 
     total = readings[0]['_total'] if readings else 0
+    unit_system = g.user.get('unit_system', 'imperial')
     for reading in readings:
         reading.pop('_total', None)
         reading['id'] = str(reading['id'])
-        reading['temperature'] = float(reading.pop('value'))
+        reading['temperature'], reading['unit'] = to_display(
+            'temperature', float(reading.pop('value')), reading['unit'], unit_system)
         if reading.get('recorded_at'):
             reading['timestamp'] = reading.pop('recorded_at').isoformat()
 
@@ -235,7 +238,7 @@ def log_temperature():
         user_id,
         recorded_at,
         float(data['temperature']),
-        data.get('unit', 'F'),
+        data.get('unit', DISPLAY_UNITS[g.user.get('unit_system', 'imperial')]['temperature']),
         now
     ))
 
@@ -293,10 +296,12 @@ def get_blood_glucose():
     conn.close()
 
     total = readings[0]['_total'] if readings else 0
+    unit_system = g.user.get('unit_system', 'imperial')
     for reading in readings:
         reading.pop('_total', None)
         reading['id'] = str(reading['id'])
-        reading['blood_glucose'] = float(reading.pop('value'))
+        reading['blood_glucose'], reading['unit'] = to_display(
+            'blood_glucose', float(reading.pop('value')), reading['unit'], unit_system)
         if reading.get('recorded_at'):
             reading['timestamp'] = reading.pop('recorded_at').isoformat()
 
@@ -332,7 +337,7 @@ def log_blood_glucose():
         user_id,
         recorded_at,
         float(data['blood_glucose']),
-        data.get('unit', 'mg/dL'),
+        data.get('unit', DISPLAY_UNITS[g.user.get('unit_system', 'imperial')]['blood_glucose']),
         now
     ))
 
@@ -390,10 +395,12 @@ def get_weight():
     conn.close()
 
     total = readings[0]['_total'] if readings else 0
+    unit_system = g.user.get('unit_system', 'imperial')
     for reading in readings:
         reading.pop('_total', None)
         reading['id'] = str(reading['id'])
-        reading['weight'] = float(reading.pop('value'))
+        reading['weight'], reading['unit'] = to_display(
+            'weight', float(reading.pop('value')), reading['unit'], unit_system)
         if reading.get('recorded_at'):
             reading['timestamp'] = reading.pop('recorded_at').isoformat()
 
@@ -429,7 +436,7 @@ def log_weight():
         user_id,
         recorded_at,
         float(data['weight']),
-        data.get('unit', 'lbs'),
+        data.get('unit', DISPLAY_UNITS[g.user.get('unit_system', 'imperial')]['weight']),
         now
     ))
 

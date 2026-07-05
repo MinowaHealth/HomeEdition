@@ -180,7 +180,8 @@ def get_session(session_id: str) -> dict[str, Any] | None:
         # IS DISTINCT FROM (not <>) so legitimate NULL user_agent still matches.
         cur.execute("""
             SELECT s.tenant_id, s.session_id, s.user_id, s.expires_at, s.last_activity,
-                   u.email, u.display_name, u.is_active, u.is_developer, u.home_timezone, u.created_at
+                   u.email, u.display_name, u.is_active, u.is_developer, u.home_timezone,
+                   u.unit_system, u.created_at
             FROM sessions s
             JOIN users u ON s.tenant_id = u.tenant_id AND s.user_id = u.id
             WHERE s.session_id = %s
@@ -221,6 +222,7 @@ def get_session(session_id: str) -> dict[str, Any] | None:
             'email': session['email'],
             'display_name': session['display_name'],
             'home_timezone': session['home_timezone'] or 'America/Los_Angeles',
+            'unit_system': session['unit_system'] or 'imperial',
             'is_developer': session.get('is_developer', False),
             'database_name': 'healthv10',  # For backwards compatibility
             'created_at': session['created_at'].isoformat() if session.get('created_at') else None
@@ -819,7 +821,7 @@ def lookup_api_key(bearer_token: str | None) -> dict[str, Any] | None:
         # Look up by prefix + hash, join users for active check
         cur.execute("""
             SELECT t.tenant_id, t.id as key_id, t.user_id, t.token_hash,
-                   u.email, u.display_name, u.is_active, u.is_developer
+                   u.email, u.display_name, u.is_active, u.is_developer, u.unit_system
             FROM api_tokens t
             JOIN users u ON t.tenant_id = u.tenant_id AND t.user_id = u.id
             WHERE t.key_prefix = %s
@@ -853,6 +855,7 @@ def lookup_api_key(bearer_token: str | None) -> dict[str, Any] | None:
             'username': row['email'],
             'email': row['email'],
             'display_name': row['display_name'],
+            'unit_system': row['unit_system'] or 'imperial',
             'is_developer': row.get('is_developer', False),
             'database_name': 'healthv10'
         }
