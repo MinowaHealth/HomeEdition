@@ -12,17 +12,23 @@ Self-check: python unit_conversion.py
 """
 
 # Canonical unit per metric_type — what aggregation converts to.
+# 'body_temperature' is the HealthKit spelling of 'temperature'.
 CANONICAL_UNITS = {
     'weight': 'lbs',
     'temperature': 'F',
+    'body_temperature': 'F',
     'blood_glucose': 'mg/dL',
 }
 
 # What each unit_system displays per metric_type.
 DISPLAY_UNITS = {
-    'imperial': {'weight': 'lbs', 'temperature': 'F', 'blood_glucose': 'mg/dL'},
-    'metric': {'weight': 'kg', 'temperature': 'C', 'blood_glucose': 'mmol/L'},
+    'imperial': {'weight': 'lbs', 'temperature': 'F', 'body_temperature': 'F',
+                 'blood_glucose': 'mg/dL'},
+    'metric': {'weight': 'kg', 'temperature': 'C', 'body_temperature': 'C',
+               'blood_glucose': 'mmol/L'},
 }
+
+_METRIC_ALIASES = {'body_temperature': 'temperature'}
 
 KG_PER_LB = 0.45359237
 MGDL_PER_MMOLL = 18.0182
@@ -36,7 +42,7 @@ def _convert(metric_type: str, value: float, from_unit: str, to_unit: str) -> fl
     """Convert value between the two known units of a metric_type."""
     if from_unit == to_unit:
         return value
-    key = (metric_type, from_unit, to_unit)
+    key = (_METRIC_ALIASES.get(metric_type, metric_type), from_unit, to_unit)
     if key == ('weight', 'lbs', 'kg'):
         converted = value * KG_PER_LB
     elif key == ('weight', 'kg', 'lbs'):

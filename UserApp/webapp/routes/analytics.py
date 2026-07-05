@@ -11,6 +11,7 @@ import pytz
 import json
 
 from utils import require_auth, get_db_connection, get_user_db_connection, get_user_timezone, get_user_id, table_has_column, local_to_utc
+from unit_conversion import CANONICAL_UNITS, to_display
 import db_manager
 
 bp = Blueprint('analytics', __name__, url_prefix='/api/v1')
@@ -1070,21 +1071,37 @@ def get_dashboard():
             }
 
         # -------- health_metrics rollup (one row per metric_type) --------
+        # Rows keep the unit they were entered in, so canonicalize (lbs / F /
+        # mg/dL) before aggregating — otherwise mixed-unit history averages
+        # into nonsense. CASE mirrors unit_conversion.CANONICAL_UNITS.
         cur.execute("""
             SELECT metric_type,
                    COUNT(*)       AS count,
-                   AVG(value)::float AS avg_value,
-                   MIN(value)::float AS min_value,
-                   MAX(value)::float AS max_value
-            FROM health_metrics
-            WHERE user_id = %s
-              AND metric_type = ANY(%s::text[])
-              AND recorded_at >= %s AND recorded_at < %s
-              AND value IS NOT NULL
+                   AVG(cv)::float AS avg_value,
+                   MIN(cv)::float AS min_value,
+                   MAX(cv)::float AS max_value
+            FROM (
+                SELECT metric_type,
+                       CASE
+                           WHEN metric_type = 'weight' AND unit = 'kg'
+                               THEN value / 0.45359237
+                           WHEN metric_type IN ('temperature', 'body_temperature') AND unit = 'C'
+                               THEN value * 9.0 / 5.0 + 32
+                           WHEN metric_type = 'blood_glucose' AND unit = 'mmol/L'
+                               THEN value * 18.0182
+                           ELSE value
+                       END AS cv
+                FROM health_metrics
+                WHERE user_id = %s
+                  AND metric_type = ANY(%s::text[])
+                  AND recorded_at >= %s AND recorded_at < %s
+                  AND value IS NOT NULL
+            ) canonical
             GROUP BY metric_type
         """, (user_id, list(_DASHBOARD_METRIC_TYPES), start_ts, end_ts))
         metric_rollup = {r['metric_type']: r for r in cur.fetchall()}
 
+        unit_system = g.user.get('unit_system', 'imperial')
         metrics_summary: dict = {}
         for mtype in _DASHBOARD_METRIC_TYPES:
             agg = metric_rollup.get(mtype)
@@ -1102,17 +1119,31 @@ def get_dashboard():
                 LIMIT 1
             """, (user_id, mtype, end_ts))
             latest = cur.fetchone()
-            metrics_summary[mtype] = {
+            latest_summary = None
+            if latest:
+                latest_val = float(latest['value']) if latest.get('value') is not None else None
+                latest_unit = latest.get('unit')
+                if latest_val is not None and latest_unit:
+                    latest_val, latest_unit = to_display(mtype, latest_val, latest_unit, unit_system)
+                latest_summary = {
+                    'recorded_at': latest['recorded_at'].isoformat() if latest.get('recorded_at') else None,
+                    'value': latest_val,
+                    'unit': latest_unit,
+                }
+            entry = {
                 'count': int(agg['count']),
                 'avg': round(agg['avg_value'], 2) if agg['avg_value'] is not None else None,
                 'min': round(agg['min_value'], 2) if agg['min_value'] is not None else None,
                 'max': round(agg['max_value'], 2) if agg['max_value'] is not None else None,
-                'latest': None if not latest else {
-                    'recorded_at': latest['recorded_at'].isoformat() if latest.get('recorded_at') else None,
-                    'value': float(latest['value']) if latest.get('value') is not None else None,
-                    'unit': latest.get('unit'),
-                },
+                'latest': latest_summary,
             }
+            # Aggregates are canonical; present them in the user's display unit.
+            canonical = CANONICAL_UNITS.get(mtype)
+            if canonical:
+                for k in ('avg', 'min', 'max'):
+                    if entry[k] is not None:
+                        entry[k], entry['unit'] = to_display(mtype, entry[k], canonical, unit_system)
+            metrics_summary[mtype] = entry
 
         # -------- Garmin daily summary rollup --------
         cur.execute("""
