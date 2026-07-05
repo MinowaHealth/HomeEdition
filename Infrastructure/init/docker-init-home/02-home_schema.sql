@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS public.users (
     deployment_type text DEFAULT 'saas'::text,
     home_timezone text DEFAULT 'America/Los_Angeles'::text,
     locale text DEFAULT 'en-US'::text,
+    unit_system text DEFAULT 'imperial'::text NOT NULL CHECK (unit_system IN ('imperial', 'metric')),
     preferred_language text DEFAULT 'en'::text,
     biological_sex text,
     gender_identity text,

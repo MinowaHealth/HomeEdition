@@ -73,6 +73,7 @@ One row per household member. Carries authentication (Argon2id `password_hash`, 
 | `deployment_type` | TEXT |  | `'saas'` |
 | `home_timezone` | TEXT |  | `'America/Los_Angeles'` |
 | `locale` | TEXT |  | `'en-US'` |
+| `unit_system` | TEXT | NOT NULL | `'imperial'` |
 | `preferred_language` | TEXT |  | `'en'` |
 | `biological_sex` | TEXT |  |  |
 | `gender_identity` | TEXT |  |  |

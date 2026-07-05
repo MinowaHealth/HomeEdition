@@ -31,6 +31,7 @@ erDiagram
         text password_hash "argon2id"
         boolean totp_enabled
         text home_timezone
+        text unit_system "imperial | metric"
         integer track_energy_spoons
     }
     sessions {
