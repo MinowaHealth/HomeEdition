@@ -20,6 +20,7 @@ import db_manager
 from logging_config import configure_logging, is_level, BASIC, STANDARD, DEBUG, get_log_level
 from logging_middleware import setup_request_logging
 from utils import require_auth, table_has_column, local_to_utc, utc_to_local
+from unit_conversion import normalize_metric_unit
 import analytics
 
 load_dotenv()
@@ -1288,7 +1289,9 @@ def _sync_healthkit_v2(payload):
             recorded_at,
             metric_type,
             value,
-            sample.get('unit'),
+            # Normalize HealthKit unit spellings ('lb', 'degF') to the
+            # unit_conversion vocabulary; unknown units stay raw.
+            normalize_metric_unit(metric_type, sample.get('unit')) or sample.get('unit'),
             source_string,
             json.dumps(notes_payload) if notes_payload else None,
             now_utc,
@@ -1608,7 +1611,10 @@ def sync_healthkit():
                         derived_recorded_at,
                         derived_type,
                         derived_value,
-                        derived.get('unit'),
+                        # Normalize to the unit_conversion vocabulary so display
+                        # and rollup convert it; unknown units stay raw (imports
+                        # never drop data).
+                        normalize_metric_unit(derived_type, derived.get('unit')) or derived.get('unit'),
                         sample.get('source'),
                         json.dumps({'metadata': derived_meta}),
                         datetime.now(pytz.utc),
@@ -1636,7 +1642,9 @@ def sync_healthkit():
             recorded_at,
             metric_type,
             value,
-            unit,
+            # Normalize client unit spellings ('lb', 'degF') to the
+            # unit_conversion vocabulary; unknown units stay raw.
+            normalize_metric_unit(metric_type, unit) or unit,
             source,
             json.dumps(raw_data) if raw_data else None,
             datetime.now(pytz.utc),

@@ -84,6 +84,36 @@ def test_patch_rejects_invalid_values(client, restore_preference):
     assert client.patch("/api/v1/settings/unit-system", json={}).status_code == 400
 
 
+def test_post_rejects_unknown_units(client):
+    for path, payload in [
+        ("/api/v1/temperature", {"temperature": 98.6, "unit": "banana", "timestamp": _stamp(5)}),
+        ("/api/v1/weight", {"weight": 150, "unit": "stone", "timestamp": _stamp(5)}),
+        ("/api/v1/blood-glucose", {"blood_glucose": 100, "unit": "g/L", "timestamp": _stamp(5)}),
+    ]:
+        resp = client.post(path, json=payload)
+        assert resp.status_code == 400, f"{path} accepted {payload['unit']!r}"
+
+
+def test_post_normalizes_alias_units(client, restore_preference):
+    # 'degF' (HealthKit spelling) must store as canonical 'F'.
+    _set_system(client, "imperial")
+    before = _entry_ids(client, "/api/v1/temperature")
+    created = []
+    try:
+        resp = client.post(
+            "/api/v1/temperature",
+            json={"temperature": 98.6, "unit": "degF", "timestamp": _stamp(5)},
+        )
+        assert resp.status_code == 201
+        new = _entry_ids(client, "/api/v1/temperature") - before
+        created += list(new)
+        (entry,) = _entries_by_id(client, "/api/v1/temperature", new)
+        assert (entry["temperature"], entry["unit"]) == (98.6, "F")
+    finally:
+        for metric_id in created:
+            client.delete(f"/api/v1/health-metrics/{metric_id}")
+
+
 def test_mixed_unit_flow(client, restore_preference):
     _set_system(client, "imperial")
 

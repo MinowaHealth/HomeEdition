@@ -21,7 +21,24 @@ from utils import (
 )
 import analytics
 import db_manager
-from unit_conversion import DISPLAY_UNITS, to_display
+from unit_conversion import DISPLAY_UNITS, normalize_metric_unit, to_display
+
+
+def _resolve_unit(data: dict, metric_type: str):
+    """Resolve the unit for a vitals POST.
+
+    Omitted -> the user's display-unit preference. Provided -> normalized to
+    the canonical spelling ('lb' -> 'lbs', 'degC' -> 'C'); unrecognized units
+    are rejected so garbage never crosses the border. Returns (unit, error).
+    """
+    raw = data.get('unit')
+    if raw is None:
+        return DISPLAY_UNITS[g.user.get('unit_system', 'imperial')][metric_type], None
+    unit = normalize_metric_unit(metric_type, raw)
+    if unit is None:
+        valid = sorted({DISPLAY_UNITS[s][metric_type] for s in DISPLAY_UNITS})
+        return None, (jsonify({'error': f"unit must be one of: {', '.join(valid)}"}), 400)
+    return unit, None
 
 bp = Blueprint('vitals', __name__, url_prefix='/api/v1')
 
@@ -221,6 +238,10 @@ def log_temperature():
     user_id = get_user_id()
     tenant_id = g.user.get('tenant_id', 1)
 
+    unit, err = _resolve_unit(data, 'temperature')
+    if err:
+        return err
+
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -238,7 +259,7 @@ def log_temperature():
         user_id,
         recorded_at,
         float(data['temperature']),
-        data.get('unit', DISPLAY_UNITS[g.user.get('unit_system', 'imperial')]['temperature']),
+        unit,
         now
     ))
 
@@ -320,6 +341,10 @@ def log_blood_glucose():
     user_id = get_user_id()
     tenant_id = g.user.get('tenant_id', 1)
 
+    unit, err = _resolve_unit(data, 'blood_glucose')
+    if err:
+        return err
+
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -337,7 +362,7 @@ def log_blood_glucose():
         user_id,
         recorded_at,
         float(data['blood_glucose']),
-        data.get('unit', DISPLAY_UNITS[g.user.get('unit_system', 'imperial')]['blood_glucose']),
+        unit,
         now
     ))
 
@@ -419,6 +444,10 @@ def log_weight():
     user_id = get_user_id()
     tenant_id = g.user.get('tenant_id', 1)
 
+    unit, err = _resolve_unit(data, 'weight')
+    if err:
+        return err
+
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -436,7 +465,7 @@ def log_weight():
         user_id,
         recorded_at,
         float(data['weight']),
-        data.get('unit', DISPLAY_UNITS[g.user.get('unit_system', 'imperial')]['weight']),
+        unit,
         now
     ))
 

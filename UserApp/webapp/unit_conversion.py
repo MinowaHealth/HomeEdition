@@ -30,6 +30,40 @@ DISPLAY_UNITS = {
 
 _METRIC_ALIASES = {'body_temperature': 'temperature'}
 
+# Accepted spellings per metric_type -> canonical spelling, casefolded keys.
+# Covers manual API input plus what the import borders emit: Apple HealthKit
+# quantity units ('lb', 'degF'), the FHIR/UCUM normalizer in app.py
+# ('lb', 'kg', 'degC', 'degF'), and casing variants.
+_UNIT_ALIASES = {
+    'weight': {
+        'lbs': 'lbs', 'lb': 'lbs', 'pound': 'lbs', 'pounds': 'lbs',
+        'kg': 'kg', 'kgs': 'kg', 'kilogram': 'kg', 'kilograms': 'kg',
+    },
+    'temperature': {
+        'f': 'F', 'degf': 'F', '°f': 'F', 'fahrenheit': 'F',
+        'c': 'C', 'degc': 'C', '°c': 'C', 'cel': 'C', 'celsius': 'C',
+    },
+    'blood_glucose': {
+        'mg/dl': 'mg/dL', 'mmol/l': 'mmol/L',
+    },
+}
+
+
+def normalize_metric_unit(metric_type: str, unit: str | None) -> str | None:
+    """Normalize a unit spelling to this module's vocabulary.
+
+    Returns the canonical spelling, or None when the unit isn't recognized
+    for that metric_type (caller decides: API POSTs reject with 400, import
+    paths keep the raw string — imports never drop data). Metric types with
+    no conversion vocabulary return the unit unchanged.
+    """
+    aliases = _UNIT_ALIASES.get(_METRIC_ALIASES.get(metric_type, metric_type))
+    if aliases is None:
+        return unit
+    if unit is None:
+        return None
+    return aliases.get(str(unit).strip().casefold())
+
 KG_PER_LB = 0.45359237
 MGDL_PER_MMOLL = 18.0182
 
@@ -91,4 +125,9 @@ if __name__ == '__main__':
     assert to_display('temperature', 98.6, 'F', 'metric') == (37.0, 'C')
     assert to_display('temperature', 101.3, 'F', 'imperial') == (101.3, 'F')
     assert to_display('weight', 12, 'stone', 'metric') == (12, 'stone')  # unknown unit passes through
+    assert normalize_metric_unit('weight', 'lb') == 'lbs'
+    assert normalize_metric_unit('temperature', 'degC') == 'C'
+    assert normalize_metric_unit('blood_glucose', 'MG/DL') == 'mg/dL'
+    assert normalize_metric_unit('temperature', 'banana') is None
+    assert normalize_metric_unit('heart_rate', 'bpm') == 'bpm'  # no vocabulary: unchanged
     print('unit_conversion.py self-check OK')

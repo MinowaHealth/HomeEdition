@@ -1763,7 +1763,10 @@ components:
           type: number
         unit:
           type: string
-          description: Defaults to `F` if omitted.
+          description: >
+            `F` or `C`; common alias spellings (`degF`, `°C`, `Celsius`) are
+            normalized. Defaults to the user's `unit_system` preference if
+            omitted. Unrecognized units are rejected with 400.
 
     TemperatureList:
       type: object
@@ -1808,7 +1811,10 @@ components:
           type: number
         unit:
           type: string
-          description: Defaults to `mg/dL` if omitted.
+          description: >
+            `mg/dL` or `mmol/L` (case-insensitive). Defaults to the user's
+            `unit_system` preference if omitted. Unrecognized units are
+            rejected with 400.
 
     BloodGlucoseList:
       type: object
@@ -1853,7 +1859,10 @@ components:
           type: number
         unit:
           type: string
-          description: Defaults to `lbs` if omitted.
+          description: >
+            `lbs` or `kg`; common alias spellings (`lb`, `pounds`) are
+            normalized. Defaults to the user's `unit_system` preference if
+            omitted. Unrecognized units are rejected with 400.
 
     WeightList:
       type: object

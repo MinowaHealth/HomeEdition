@@ -137,6 +137,65 @@ def test_imperial_display_units_are_the_canonical_units():
     assert uc.DISPLAY_UNITS["imperial"] == uc.CANONICAL_UNITS
 
 
+# ------------------------------------------------- border normalization
+
+@pytest.mark.parametrize("metric,raw,expected", [
+    # Apple HealthKit quantity-unit spellings
+    ("weight", "lb", "lbs"),
+    ("temperature", "degF", "F"),
+    ("blood_glucose", "mg/dL", "mg/dL"),
+    # app.py FHIR/UCUM normalizer output ('lb'/'kg'/'degC'/'degF')
+    ("weight", "kg", "kg"),
+    ("temperature", "degC", "C"),
+    # casing / spelling variants
+    ("weight", "Pounds", "lbs"),
+    ("weight", "KILOGRAM", "kg"),
+    ("temperature", "°C", "C"),
+    ("temperature", "celsius", "C"),
+    ("temperature", " F ", "F"),
+    ("blood_glucose", "MG/DL", "mg/dL"),
+    ("blood_glucose", "mmol/l", "mmol/L"),
+    # already canonical: identity
+    ("weight", "lbs", "lbs"),
+    ("temperature", "C", "C"),
+    ("blood_glucose", "mmol/L", "mmol/L"),
+    # HealthKit metric-type spelling
+    ("body_temperature", "degF", "F"),
+])
+def test_normalize_metric_unit_known_spellings(metric, raw, expected):
+    assert uc.normalize_metric_unit(metric, raw) == expected
+
+
+@pytest.mark.parametrize("metric,raw", [
+    ("weight", "stone"),
+    ("temperature", "K"),
+    ("temperature", "banana"),
+    ("blood_glucose", "g/L"),
+    ("weight", ""),
+    ("weight", None),
+])
+def test_normalize_metric_unit_rejects_unknown(metric, raw):
+    assert uc.normalize_metric_unit(metric, raw) is None
+
+
+def test_normalize_metric_unit_ignores_unlisted_metric_types():
+    # No vocabulary for these — nothing to normalize against, pass through.
+    assert uc.normalize_metric_unit("heart_rate", "bpm") == "bpm"
+    assert uc.normalize_metric_unit("medication", "2 tablets daily") == "2 tablets daily"
+    assert uc.normalize_metric_unit("steps", None) is None
+
+
+def test_normalized_units_are_always_convertible():
+    # Everything the normalizer emits must be a unit to_display can convert —
+    # otherwise the leash lets a spelling through that the rollup mishandles.
+    for metric, aliases in uc._UNIT_ALIASES.items():
+        for canonical in set(aliases.values()):
+            for system in ("imperial", "metric"):
+                _, unit = uc.to_display(metric, 50, canonical, system)
+                assert unit == uc.DISPLAY_UNITS[system][metric], \
+                    f"{metric} {canonical} not convertible under {system}"
+
+
 # ------------------------------------------------- SQL drift tripwire
 
 def test_analytics_sql_case_uses_same_constants():
