@@ -3,7 +3,7 @@
 Date: 2026-07-01 23:15 PDT (original audit 2026-06-20; reworded pre-release)
 Mode: over-engineering only (no bugs, security, perf)
 
-Four models (Opus, DeepFlash, Kimi-K2.5, Kimi-K2.7) audited the same repo independently for over-engineering. This document merges their findings by agreement strength, reconciles conflicts by reading the code, and — now that the release policy is settled — records what was applied versus what Home Edition keeps **on purpose**. It is published as an example of how we do quality control on this codebase.
+Four models (Opus, GLM-5.2, DeepFlash, Kimi-K2.7) audited the same repo independently for over-engineering. This document merges their findings by agreement strength, reconciles conflicts by reading the code, and — now that the release policy is settled — records what was applied versus what Home Edition keeps **on purpose**. It is published as an example of how we do quality control on this codebase.
 
 ## Read this first: why "delete the stub" often loses here
 
