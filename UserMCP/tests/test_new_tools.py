@@ -296,6 +296,94 @@ async def test_garmin_detail_recent_target_truncated():
 
 
 # ---------------------------------------------------------------------------
+# sleep_events (get_sleep_events_detail)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_sleep_events_passes_at_and_wraps_events():
+    from tools.sleep_events import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {
+            "target": "2026-07-12T17:30:00+00:00",
+            "window": {"from": "2026-07-12T16:30:00+00:00",
+                       "to": "2026-07-12T18:30:00+00:00", "minutes": 121},
+            "events": [
+                {"start": "2026-07-12T17:20:00+00:00",
+                 "end": "2026-07-12T17:50:00+00:00", "sleep_type": "light",
+                 "duration_seconds": 1800, "contains_target": True},
+            ],
+            "stage_at_target": "light",
+            "counts": {"events": 1, "by_type": {"light": 1},
+                       "in_window_seconds_by_type": {"light": 1800}},
+            "truncated_future": False,
+        }
+
+    client = _make_client({"/garmin/sleep-events": route})
+    env = await handle({"at": "2026-07-12T17:30:00Z"}, client)
+
+    _assert_envelope(env)
+    assert captured["params"] == {"at": "2026-07-12T17:30:00Z"}
+    assert env["data"]["stage_at_target"] == "light"
+    assert env["data"]["in_window_seconds_by_type"] == {"light": 1800}
+    assert env["coverage"]["counts"]["by_type"] == {"light": 1}
+    assert env["coverage"]["gaps"] == []
+
+
+@pytest.mark.asyncio
+async def test_sleep_events_requires_at():
+    from tools.sleep_events import handle
+
+    client = _make_client({})  # route must never be called
+    env = await handle({}, client)
+
+    assert env["data"]["events"] == []
+    assert any("required" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+@pytest.mark.asyncio
+async def test_sleep_events_empty_window_gaps():
+    from tools.sleep_events import handle
+
+    client = _make_client({"/garmin/sleep-events": {
+        "target": "2026-07-12T14:00:00+00:00",
+        "window": {"from": "...", "to": "...", "minutes": 121},
+        "events": [], "stage_at_target": None,
+        "counts": {"events": 0, "by_type": {}, "in_window_seconds_by_type": {}},
+        "truncated_future": False,
+    }})
+    env = await handle({"at": "2026-07-12T14:00:00Z"}, client)
+
+    reasons = " ".join(g["reason"] for g in env["coverage"]["gaps"])
+    assert "no sleep events" in reasons
+    assert env["coverage"]["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_sleep_events_recent_target_truncated():
+    from tools.sleep_events import handle
+
+    client = _make_client({"/garmin/sleep-events": {
+        "target": "2026-07-13T05:00:00+00:00",
+        "window": {"from": "...", "to": "...", "minutes": 121},
+        "events": [{"start": "2026-07-13T04:30:00+00:00",
+                    "end": "2026-07-13T05:00:00+00:00", "sleep_type": "deep",
+                    "duration_seconds": 1800, "contains_target": False}],
+        "stage_at_target": None,
+        "counts": {"events": 1, "by_type": {"deep": 1},
+                   "in_window_seconds_by_type": {"deep": 1800}},
+        "truncated_future": True,
+    }})
+    env = await handle({"at": "2026-07-13T05:00:00Z"}, client)
+
+    assert env["coverage"]["truncated"] is True
+    assert any("into the future" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+# ---------------------------------------------------------------------------
 # wearables
 # ---------------------------------------------------------------------------
 

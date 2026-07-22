@@ -142,7 +142,8 @@
 /api/v1/feedback
 /api/v1/feedback/{feedback_id}
 
-# ─── Garmin per-minute detail — documented in UserAPI.md; openapi schema
-# entry deferred until the in-flight openapi.yaml unit-system/blood-glucose
+# ─── Garmin point-in-time detail — documented in UserAPI.md; openapi schema
+# entries deferred until the in-flight openapi.yaml unit-system/blood-glucose
 # batch lands (avoids folding unrelated work into this commit)
 /api/v1/garmin/minute-detail
+/api/v1/garmin/sleep-events

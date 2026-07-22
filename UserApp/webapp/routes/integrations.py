@@ -616,6 +616,103 @@ def garmin_minute_detail():
     })
 
 
+@bp.route('/garmin/sleep-events', methods=['GET'])
+@require_auth
+def garmin_sleep_events_detail():
+    """Garmin sleep-stage events around a point in time.
+
+    Query param:
+        at (required) — ISO 8601 instant. Offset-aware strings are honored;
+            naive strings are read in the user's home timezone.
+
+    Returns every sleep-stage interval (deep / light / rem / awake) that
+    overlaps [at − 60min, at + 60min]. Events are returned with their true,
+    un-clipped start/end — a stage that runs past the window edge shows its
+    full extent, since we're characterizing what was happening AROUND the
+    target, not only inside a hard box. `in_window_seconds_by_type` clips to
+    the window so the rollup doesn't overcount an edge event. A recent target
+    returns only elapsed events and sets `truncated_future`.
+
+    Minimum-Necessary (§164.502(b)): the ±60-minute bound is the minimization;
+    the read is keyed by the RLS session identity (no user_id in the WHERE).
+    """
+    at_str = request.args.get('at')
+    if not at_str:
+        return jsonify({'error': 'at (ISO 8601 timestamp) is required'}), 400
+    try:
+        at_utc = local_to_utc(at_str)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid at timestamp; use ISO 8601'}), 400
+
+    window = timedelta(minutes=GARMIN_DETAIL_WINDOW_MINUTES)
+    start = at_utc - window
+    end = at_utc + window
+    now = datetime.now(timezone.utc)
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # Overlap, not containment: an event counts if any part of it falls in
+        # the window (start before window end AND end after window start).
+        cur.execute("""
+            SELECT start_time, end_time, sleep_type FROM garm_sleep_events
+            WHERE start_time < %s AND end_time > %s
+            ORDER BY start_time
+        """, (end, start))
+        rows = cur.fetchall()
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill('/garmin/sleep-events', str(g.user.get('user_id', 'anon')))
+            return jsonify({'error': 'Query took too long and was cancelled', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("garmin/sleep-events FAILED: %s", e)
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+    events = []
+    by_type: dict = {}
+    in_window_secs: dict = {}
+    stage_at_target = None
+    for r in rows:
+        st, en, typ = r['start_time'], r['end_time'], r['sleep_type']
+        if st.tzinfo is None:
+            st = pytz.UTC.localize(st)
+        if en.tzinfo is None:
+            en = pytz.UTC.localize(en)
+        contains = st <= at_utc < en
+        if contains:
+            stage_at_target = typ
+        events.append({
+            'start': st.isoformat(),
+            'end': en.isoformat(),
+            'sleep_type': typ,
+            'duration_seconds': int((en - st).total_seconds()),
+            'contains_target': contains,
+        })
+        by_type[typ] = by_type.get(typ, 0) + 1
+        overlap = int((min(en, end) - max(st, start)).total_seconds())
+        if overlap > 0:
+            in_window_secs[typ] = in_window_secs.get(typ, 0) + overlap
+
+    return jsonify({
+        'target': at_utc.isoformat(),
+        'window': {
+            'from': start.isoformat(),
+            'to': end.isoformat(),
+            'minutes': GARMIN_DETAIL_WINDOW_MINUTES * 2 + 1,
+        },
+        'events': events,
+        'stage_at_target': stage_at_target,
+        'counts': {
+            'events': len(events),
+            'by_type': by_type,
+            'in_window_seconds_by_type': in_window_secs,
+        },
+        'truncated_future': end > now,
+    })
+
+
 # ==================== DATA CORRECTIONS ====================
 
 ALLOWED_CORRECTION_FIELDS = {'activityType', 'food_name'}
