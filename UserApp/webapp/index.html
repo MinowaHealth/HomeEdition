@@ -2281,6 +2281,11 @@
             // Unit system state (server-side preference, users.unit_system)
             const [unitSystem, setUnitSystem] = useState(null);
 
+            // BP meter pick list (server-side, user_preferences.bp_devices)
+            const [bpMeters, setBpMeters] = useState([]);
+            const [newMeter, setNewMeter] = useState('');
+            const [meterError, setMeterError] = useState(null);
+
             // 2FA state
             const [twoFaStatus, setTwoFaStatus] = useState(null);
             const [twoFaLoading, setTwoFaLoading] = useState(true);
@@ -2348,11 +2353,50 @@
                     }
                 };
 
+                const fetchBpMeters = async () => {
+                    try {
+                        const response = await fetch(`${API_BASE}/settings/bp-devices`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            setBpMeters(data.devices || []);
+                        }
+                    } catch (err) {
+                        console.error('Failed to fetch BP meters:', err);
+                    }
+                };
+
                 fetchMcpConfig();
                 fetch2FaStatus();
                 fetchApiKeys();
                 fetchUnitSystem();
+                fetchBpMeters();
             }, []);
+
+            const saveBpMeters = async (list) => {
+                setMeterError(null);
+                try {
+                    const response = await fetch(`${API_BASE}/settings/bp-devices`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ devices: list }),
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        setBpMeters(data.devices);
+                    } else {
+                        setMeterError(data.error || 'Failed to save meters');
+                    }
+                } catch (err) {
+                    setMeterError('Failed to save meters');
+                }
+            };
+
+            const addBpMeter = () => {
+                const name = newMeter.trim();
+                if (!name) return;
+                setNewMeter('');
+                saveBpMeters([...bpMeters, name]);
+            };
 
             const changeUnitSystem = async (value) => {
                 setUnitSystem(value);
@@ -2645,6 +2689,53 @@
                                     </label>
                                 ))}
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Blood Pressure Meters Section */}
+                    <div style={{ marginBottom: '40px' }}>
+                        <h3>Blood Pressure Meters</h3>
+                        <p style={{ color: 'var(--color-muted)', marginBottom: '20px' }}>
+                            Meters you use to take blood pressure readings. The logging form offers
+                            these as the device pick list; readings logged without a device count as manual entry.
+                        </p>
+
+                        {meterError && (
+                            <div style={{ padding: '10px', marginBottom: '15px', background: 'var(--color-error-bg)', color: 'var(--color-error)', borderRadius: '5px' }}>
+                                {meterError}
+                            </div>
+                        )}
+
+                        {bpMeters.length === 0 && (
+                            <div style={{ color: 'var(--color-muted)', marginBottom: '12px' }}>
+                                No meters configured — the logging form only offers manual entry.
+                            </div>
+                        )}
+                        {bpMeters.map(m => (
+                            <div key={m} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                <span style={{ flex: '0 1 auto' }}>{m}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => saveBpMeters(bpMeters.filter(x => x !== m))}
+                                    style={{ padding: '2px 10px' }}
+                                >
+                                    Remove
+                                </button>
+                            </div>
+                        ))}
+
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                            <input
+                                type="text"
+                                placeholder="Meter name (e.g. Omron upper arm)"
+                                maxLength={60}
+                                value={newMeter}
+                                onChange={(e) => setNewMeter(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBpMeter(); } }}
+                            />
+                            <button type="button" onClick={addBpMeter} disabled={!newMeter.trim()}>
+                                Add Meter
+                            </button>
                         </div>
                     </div>
 
@@ -3343,17 +3434,15 @@
                 fetchBpDevices();
             }, []);
 
-            // Known BP collection devices (for the datalist) — every source
-            // except 'manual', which is what a blank device means.
+            // The user's configured BP meters (Settings > Blood Pressure
+            // Meters). Strict pick list — a blank device means manual entry.
             const fetchBpDevices = async () => {
                 try {
-                    const response = await fetch(`${API_BASE}/blood-pressure/sources`);
+                    const response = await fetch(`${API_BASE}/settings/bp-devices`);
                     const data = await response.json();
-                    setBpDevices((data.sources || [])
-                        .map(s => s.source)
-                        .filter(s => s && s !== 'manual'));
+                    setBpDevices(data.devices || []);
                 } catch (e) {
-                    console.log('bp sources fetch failed', e);
+                    console.log('bp devices fetch failed', e);
                 }
             };
 
@@ -4103,16 +4192,14 @@
                                         <option value="standing">Standing</option>
                                         <option value="supine">Supine (lying down)</option>
                                     </select>
-                                    <input
-                                        type="text"
-                                        list="bp-device-options"
-                                        placeholder="Device (blank = manual entry)"
+                                    <select
                                         value={formData.bp_device || ''}
                                         onChange={(e) => setFormData({ ...formData, bp_device: e.target.value })}
-                                    />
-                                    <datalist id="bp-device-options">
-                                        {bpDevices.map(d => <option key={d} value={d} />)}
-                                    </datalist>
+                                        title={bpDevices.length === 0 ? 'Add meters under Settings > Blood Pressure Meters' : undefined}
+                                    >
+                                        <option value="">Manual entry (no device)</option>
+                                        {bpDevices.map(d => <option key={d} value={d}>{d}</option>)}
+                                    </select>
                                 </div>
                             </>
                         ) : logType === 'temperature' ? (

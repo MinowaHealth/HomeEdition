@@ -293,6 +293,58 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/settings/bp-devices:
+    get:
+      operationId: getBpDevices
+      tags: [account]
+      summary: The user's configured blood pressure meter names
+      description: |
+        Backs the web log form's strict device pick list. 'manual' is
+        implicit (a reading with no device) and never appears here.
+      responses:
+        "200":
+          description: Configured meters (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BpDevicesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    put:
+      operationId: setBpDevices
+      tags: [account]
+      summary: Replace the user's blood pressure meter list
+      description: |
+        Up to 20 names, each 1-60 chars after trimming. Duplicates collapse
+        case-insensitively (first occurrence wins). 'manual' is reserved
+        and rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [devices]
+              properties:
+                devices:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                    maxLength: 60
+      responses:
+        "200":
+          description: Saved (cleaned) list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BpDevicesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   # Self-service signup and email-based password reset were removed in Home
   # Edition (no Mailgun / email flows). Accounts are provisioned and passwords
   # reset via the admin.py CLI; the authenticated in-app change-password
@@ -1741,6 +1793,15 @@ components:
           type:
             - string
             - "null"
+
+    BpDevicesResponse:
+      type: object
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items:
+            type: string
 
     BloodPressureSourcesResponse:
       type: object

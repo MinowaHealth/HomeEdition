@@ -268,6 +268,7 @@ CREATE TABLE IF NOT EXISTS public.user_preferences (
     privacy_data_retention text DEFAULT 'forever',
     sidebar_order text[] DEFAULT NULL,     -- Activity keys in user's preferred order
     sidebar_hidden text[] DEFAULT NULL,    -- Activity keys the user has hidden
+    bp_devices text[] DEFAULT NULL,        -- BP meter names for the log form's strict pick list; NULL/empty = manual entry only
     timezone_reminder_mode text DEFAULT 'local' CHECK (timezone_reminder_mode IN ('home', 'local')),
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),

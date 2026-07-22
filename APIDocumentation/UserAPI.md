@@ -769,6 +769,18 @@ want to filter `GET /api/v1/blood-pressure?sources=...`.
 }
 ```
 
+### GET / PUT /api/v1/settings/bp-devices
+
+The user's configured blood pressure meters — the strict pick list the web
+log form offers for `device` (plus implicit manual entry). `PUT` replaces
+the list: up to 20 names, 1–60 chars each after trimming, case-insensitive
+dedupe, `manual` reserved and rejected.
+
+**GET / PUT response (200):**
+```json
+{"devices": ["cuff meter", "Omron upper arm"]}
+```
+
 ### POST /api/v1/blood-pressure
 
 **Request:**

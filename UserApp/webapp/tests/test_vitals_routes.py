@@ -145,6 +145,75 @@ class TestGetBloodPressureSources:
         assert resp.get_json()['sources'] == []
 
 
+class TestBpDeviceSettings:
+    def test_get_returns_devices(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchone.return_value = {'bp_devices': ['cuff meter', 'Omron upper arm']}
+        resp = client.get('/api/v1/settings/bp-devices', headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.get_json()['devices'] == ['cuff meter', 'Omron upper arm']
+
+    def test_get_null_and_missing_row_both_empty(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchone.return_value = {'bp_devices': None}
+        assert client.get('/api/v1/settings/bp-devices', headers=auth_headers).get_json()['devices'] == []
+        cur.fetchone.return_value = None
+        assert client.get('/api/v1/settings/bp-devices', headers=auth_headers).get_json()['devices'] == []
+
+    def test_put_trims_and_dedupes(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.rowcount = 1
+        resp = client.put(
+            '/api/v1/settings/bp-devices',
+            headers=auth_headers,
+            data=json.dumps({'devices': [' cuff meter ', 'cuff METER', '', 'Omron']}),
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['devices'] == ['cuff meter', 'Omron']
+        # First execute is the UPDATE carrying the cleaned list, then
+        # the explicit tenant/user scoping params (household model)
+        assert cur.execute.call_args_list[0].args[1][0] == ['cuff meter', 'Omron']
+
+    def test_put_rejects_non_list_and_manual(self, client, mock_db, auth_headers):
+        resp = client.put(
+            '/api/v1/settings/bp-devices',
+            headers=auth_headers,
+            data=json.dumps({'devices': 'cuff meter'}),
+        )
+        assert resp.status_code == 400
+        resp = client.put(
+            '/api/v1/settings/bp-devices',
+            headers=auth_headers,
+            data=json.dumps({'devices': ['Manual']}),
+        )
+        assert resp.status_code == 400
+
+    def test_put_rejects_too_long_and_too_many(self, client, mock_db, auth_headers):
+        resp = client.put(
+            '/api/v1/settings/bp-devices',
+            headers=auth_headers,
+            data=json.dumps({'devices': ['x' * 61]}),
+        )
+        assert resp.status_code == 400
+        resp = client.put(
+            '/api/v1/settings/bp-devices',
+            headers=auth_headers,
+            data=json.dumps({'devices': [f'meter {i}' for i in range(21)]}),
+        )
+        assert resp.status_code == 400
+
+    def test_put_empty_list_clears(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.rowcount = 1
+        resp = client.put(
+            '/api/v1/settings/bp-devices',
+            headers=auth_headers,
+            data=json.dumps({'devices': []}),
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['devices'] == []
+
+
 class TestLogBloodPressure:
     def test_creates_reading(self, client, mock_db, auth_headers):
         conn, cur = mock_db

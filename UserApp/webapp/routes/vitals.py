@@ -168,6 +168,82 @@ def get_blood_pressure_sources():
     return jsonify({'sources': rows})
 
 
+MAX_BP_DEVICES = 20
+MAX_BP_DEVICE_NAME_LEN = 60
+
+
+@bp.route('/settings/bp-devices', methods=['GET'])
+@require_auth
+def get_bp_devices():
+    """The user's configured blood pressure meter names (may be empty).
+
+    Backs the web log form's strict device pick list; 'manual' is implicit
+    (a reading with no device) and never appears in this list.
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT bp_devices FROM user_preferences
+        WHERE tenant_id = %s AND user_id = %s
+    """, (g.user.get('tenant_id', 1), get_user_id()))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return jsonify({'devices': (row or {}).get('bp_devices') or []})
+
+
+@bp.route('/settings/bp-devices', methods=['PUT'])
+@require_auth
+def set_bp_devices():
+    """Replace the user's blood pressure meter list.
+
+    Body: {"devices": ["cuff meter", ...]} — up to 20 names, each 1-60 chars
+    after trimming; duplicates collapse (first occurrence wins, case-
+    insensitive); 'manual' is reserved and rejected.
+    """
+    data = request.get_json(silent=True) or {}
+    devices = data.get('devices')
+    if not isinstance(devices, list) or not all(isinstance(d, str) for d in devices):
+        return jsonify({'error': 'devices must be a list of strings'}), 400
+
+    cleaned: list = []
+    seen = set()
+    for d in devices:
+        name = d.strip()
+        if not name:
+            continue
+        if len(name) > MAX_BP_DEVICE_NAME_LEN:
+            return jsonify({'error': f'device names must be {MAX_BP_DEVICE_NAME_LEN} characters or fewer'}), 400
+        if name.lower() == 'manual':
+            return jsonify({'error': "'manual' is reserved for readings with no device"}), 400
+        if name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        cleaned.append(name)
+    if len(cleaned) > MAX_BP_DEVICES:
+        return jsonify({'error': f'at most {MAX_BP_DEVICES} devices'}), 400
+
+    tenant_id = g.user.get('tenant_id', 1)
+    user_id = get_user_id()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE user_preferences
+        SET bp_devices = %s, updated_at = now()
+        WHERE tenant_id = %s AND user_id = %s
+    """, (cleaned, tenant_id, user_id))
+    if cur.rowcount == 0:
+        # Preferences row is created at signup, but self-heal if absent.
+        cur.execute("""
+            INSERT INTO user_preferences (tenant_id, user_id, bp_devices)
+            VALUES (%s, %s, %s)
+        """, (tenant_id, user_id, cleaned))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({'devices': cleaned})
+
+
 @bp.route('/blood-pressure', methods=['POST'])
 @require_auth
 def log_blood_pressure():
