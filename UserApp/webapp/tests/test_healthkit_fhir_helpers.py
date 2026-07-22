@@ -96,3 +96,42 @@ def test_extract_readings_from_record_invalid_payload():
     assert _extract_readings_from_record({'fhir': '{not-json'}) == []
     assert _extract_readings_from_record({'fhir': json.dumps({'resourceType': 'Medication'})}) == []
 
+
+
+# ---------------------------------------------------------------------------
+# parse_timestamp format matrix (minowa-mcp-bug-report.md Bug 4): the single
+# choke point for every HealthKit date. FHIR effectiveDateTime is ISO-8601
+# with a T separator — the importer historically only accepted the export.xml
+# space format, silently storing NULL effective_date for all lab observations.
+# ---------------------------------------------------------------------------
+import pytest  # noqa: E402
+
+from healthkit_importer import parse_timestamp  # noqa: E402
+
+
+@pytest.mark.parametrize('ts,expect_aware', [
+    ('2024-12-11 12:22:00 -0800', True),   # HealthKit export.xml with zone
+    ('2026-01-01T12:00:00Z', True),        # FHIR ISO-8601, Z suffix
+    ('2026-01-01T12:00:00+00:00', True),   # FHIR ISO-8601, explicit offset
+    ('2026-01-01T04:00:00-08:00', True),   # FHIR ISO-8601, negative offset
+])
+def test_parse_timestamp_aware_formats(ts, expect_aware):
+    dt = parse_timestamp(ts)
+    assert dt is not None, f'failed to parse {ts!r}'
+    assert (dt.tzinfo is not None) is expect_aware
+
+
+@pytest.mark.parametrize('ts', [
+    '2024-12-11 12:22:00',       # export.xml without zone (naive)
+    '2026-01-01T12:00:00',       # ISO without zone (naive)
+    '2026-01-01',                # FHIR date-only (naive midnight)
+])
+def test_parse_timestamp_naive_formats(ts):
+    dt = parse_timestamp(ts)
+    assert dt is not None, f'failed to parse {ts!r}'
+    assert dt.year == 2026 or dt.year == 2024
+
+
+@pytest.mark.parametrize('ts', [None, '', 'garbage', '12:00:00'])
+def test_parse_timestamp_rejects_junk(ts):
+    assert parse_timestamp(ts) is None

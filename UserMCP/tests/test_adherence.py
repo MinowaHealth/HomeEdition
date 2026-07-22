@@ -79,8 +79,12 @@ async def test_handle_passes_params_to_adherence_endpoint():
 
     await handle({"from": "2026-04-01", "to": "2026-04-07"}, mock_api)
 
-    assert captured["params"]["from"] == "2026-04-01"
-    assert captured["params"]["to"] == "2026-04-07"
+    # The route reads start_date/end_date — sending from/to silently fell
+    # back to a 30-day default window (Bug 3b). Pin the correct names.
+    assert captured["params"]["start_date"] == "2026-04-01"
+    assert captured["params"]["end_date"] == "2026-04-07"
+    assert "from" not in captured["params"]
+    assert "to" not in captured["params"]
 
 
 @pytest.mark.asyncio
@@ -123,9 +127,30 @@ async def test_handle_caps_days_at_90():
 
     await handle({"days": 365}, mock_api)
 
-    start = date.fromisoformat(captured["params"]["from"])
-    end = date.fromisoformat(captured["params"]["to"])
+    start = date.fromisoformat(captured["params"]["start_date"])
+    end = date.fromisoformat(captured["params"]["end_date"])
     assert (end - start).days + 1 <= 90
+
+
+@pytest.mark.asyncio
+async def test_coverage_window_comes_from_route_response():
+    """coverage.window must reflect the window the route actually applied
+    (e.g. after clamping), not echo the request."""
+    mock_api = AsyncMock()
+
+    def router(path, **kwargs):
+        if path == "/adherence":
+            resp = _adherence_response()
+            resp["window"] = {"from": "2026-06-01", "to": "2026-06-15", "days": 15}
+            return resp
+        return {"tables": []} if path == "/diagnostics/table-counts" else (
+            {"connected": False} if path == "/garmin/status" else {"entries": []}
+        )
+    mock_api.call_api.side_effect = router
+
+    env = await handle({"from": "2026-06-01", "to": "2026-06-30"}, mock_api)
+
+    assert env["coverage"]["window"]["to"] == "2026-06-15"
 
 
 @pytest.mark.asyncio

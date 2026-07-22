@@ -31,6 +31,7 @@ PostgreSQL (healthv10 database)
 
 **Key principle:** UserMCP is a **stateless HTTP proxy** that adds MCP tools on top of the existing Flask API. It never touches the database directly. All data access is scoped to the authenticated user — the Flask API enforces a `user_id` predicate on every query, so users only see their own data.
 
+
 ---
 
 ## Quick Start

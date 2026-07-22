@@ -640,9 +640,9 @@ class TestGetHealthInputLog:
 
 class TestGetAllLogs:
     def test_merges_all_sources(self, client, mock_db, auth_headers):
-        """Each fetchall returns a list — the route runs 6 SELECTs in order:
-        health_input_log, BP, temperature, weight, sleep/nutrition metrics,
-        medication metrics, food."""
+        """Each fetchall returns a list — the route runs 8 SELECTs in order:
+        health_input_log, BP, temperature, weight, blood glucose,
+        sleep/nutrition metrics, medication metrics, food."""
         conn, cur = mock_db
         cur.fetchall.side_effect = [
             # health_input_log
@@ -677,6 +677,13 @@ class TestGetAllLogs:
                 'recorded_at': datetime(2026, 4, 19, 6, 0),
                 'value': 165.0,
                 'unit': 'lbs',
+            }],
+            # blood glucose
+            [{
+                'id': uuid.uuid4(),
+                'recorded_at': datetime(2026, 4, 19, 6, 30),
+                'value': 99.0,
+                'unit': 'mg/dL',
             }],
             # sleep/nutrition metrics
             [
@@ -737,14 +744,14 @@ class TestGetAllLogs:
         # All sources represented
         types = {e['type'] for e in body['entries']}
         assert {'health_input', 'blood_pressure', 'temperature', 'weight',
-                'sleep', 'nutrition', 'medication', 'food'} <= types
+                'blood_glucose', 'sleep', 'nutrition', 'medication', 'food'} <= types
         # Sorted DESC by timestamp
         ts = [e['timestamp'] for e in body['entries']]
         assert ts == sorted(ts, reverse=True)
 
     def test_empty_all_sources(self, client, mock_db, auth_headers):
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[], [], [], [], [], [], []]
+        cur.fetchall.side_effect = [[], [], [], [], [], [], [], []]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
         assert resp.status_code == 200
@@ -766,7 +773,7 @@ class TestGetAllLogs:
                 'default_unit': None,
                 'stack_name': None,
             }],
-            [], [], [], [], [], [],
+            [], [], [], [], [], [], [],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -779,7 +786,7 @@ class TestGetAllLogs:
         """notes as a plain (non-JSON) string — falls back gracefully."""
         conn, cur = mock_db
         cur.fetchall.side_effect = [
-            [], [], [], [],
+            [], [], [], [], [],
             [],
             [{
                 'id': uuid.uuid4(),
@@ -795,6 +802,168 @@ class TestGetAllLogs:
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
         assert resp.status_code == 200
+
+    # ------------------------------------------------------------------
+    # Filter handling (minowa-mcp-bug-report.md Bug 1): start_date /
+    # end_date / kind / input_id must actually constrain the SQL, and the
+    # response must echo what was applied.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _hil_row(ts=None):
+        return {
+            'id': uuid.uuid4(),
+            'logged_at': ts or datetime(2026, 5, 10, 9, 0),
+            'dosage_taken': '10mg',
+            'free_text': None,
+            'free_dosage': None,
+            'input_name': 'Lisinopril',
+            'default_unit': 'mg',
+            'stack_name': 'AM',
+        }
+
+    def test_date_filter_applied_to_every_source(self, client, mock_db, auth_headers):
+        """Both window bounds must be bound params on all 8 source SELECTs."""
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[]] * 8
+
+        resp = client.get(
+            '/api/v1/all-logs?start_date=2026-05-01&end_date=2026-05-15',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        dated_calls = [
+            c for c in cur.execute.call_args_list
+            if len(c.args) == 2
+            and date(2026, 5, 1) in tuple(c.args[1])
+            and date(2026, 5, 15) in tuple(c.args[1])
+        ]
+        assert len(dated_calls) == 8
+        applied = resp.get_json()['applied']
+        assert applied['start_date'] == '2026-05-01'
+        assert applied['end_date'] == '2026-05-15'
+
+    def test_kind_medication_runs_only_medication_sources(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[], []]
+
+        resp = client.get('/api/v1/all-logs?kind=medication', headers=auth_headers)
+        assert resp.status_code == 200
+        assert cur.fetchall.call_count == 2
+        assert resp.get_json()['applied']['kind'] == 'medication'
+
+    def test_kind_food_runs_only_food_source(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[]]
+
+        resp = client.get('/api/v1/all-logs?kind=food', headers=auth_headers)
+        assert resp.status_code == 200
+        assert cur.fetchall.call_count == 1
+        assert resp.get_json()['applied']['kind'] == 'food'
+
+    def test_kind_observation_runs_all_and_reports_not_applied(self, client, mock_db, auth_headers):
+        """'observation' is in the MCP enum but /all-logs has no such source:
+        run everything and report kind as not applied rather than lying."""
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[]] * 8
+
+        resp = client.get('/api/v1/all-logs?kind=observation', headers=auth_headers)
+        assert resp.status_code == 200
+        assert cur.fetchall.call_count == 8
+        assert resp.get_json()['applied']['kind'] is None
+
+    def test_input_id_runs_only_health_input_log(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[]]
+        iid = uuid.uuid4()
+
+        resp = client.get(f'/api/v1/all-logs?input_id={iid}', headers=auth_headers)
+        assert resp.status_code == 200
+        assert cur.fetchall.call_count == 1
+        bound = [
+            c for c in cur.execute.call_args_list
+            if len(c.args) == 2 and iid in tuple(c.args[1])
+        ]
+        assert bound, 'input_id was never bound as a SQL param'
+        assert resp.get_json()['applied']['input_id'] == str(iid)
+
+    def test_invalid_input_id_400(self, client, mock_db, auth_headers):
+        resp = client.get('/api/v1/all-logs?input_id=garbage', headers=auth_headers)
+        assert resp.status_code == 400
+
+    def test_invalid_start_date_400(self, client, mock_db, auth_headers):
+        resp = client.get('/api/v1/all-logs?start_date=2026-13-99', headers=auth_headers)
+        assert resp.status_code == 400
+
+    def test_reversed_range_400(self, client, mock_db, auth_headers):
+        resp = client.get(
+            '/api/v1/all-logs?start_date=2026-06-01&end_date=2026-05-01',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
+    def test_range_over_90_days_400(self, client, mock_db, auth_headers):
+        resp = client.get(
+            '/api/v1/all-logs?start_date=2026-01-01&end_date=2026-06-30',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
+    def test_sources_truncated_reported(self, client, mock_db, auth_headers):
+        """A source returning a full page (== its LIMIT) means the window may
+        hold more rows than were fetched — the response must say so."""
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [
+            [self._hil_row() for _ in range(100)],
+            [], [], [], [], [], [], [],
+        ]
+
+        resp = client.get(
+            '/api/v1/all-logs?start_date=2026-05-01&end_date=2026-05-15',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['applied']['sources_truncated'] == ['health_input_log']
+
+    def test_single_day_window(self, client, mock_db, auth_headers):
+        """start_date == end_date is a full-day window on every source, not
+        an empty or rejected one (the Bug-2 shape, pinned here too)."""
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[]] * 8
+
+        resp = client.get(
+            '/api/v1/all-logs?start_date=2026-05-18&end_date=2026-05-18',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        dated_calls = [
+            c for c in cur.execute.call_args_list
+            if len(c.args) == 2
+            and tuple(c.args[1]).count(date(2026, 5, 18)) == 2
+        ]
+        assert len(dated_calls) == 8
+
+    def test_empty_window_never_falls_back_to_newest(self, client, mock_db, auth_headers):
+        """A window with no data must return empty — never the unfiltered
+        newest-100 rows (the original Bug 1 behavior)."""
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[]] * 8
+
+        resp = client.get(
+            '/api/v1/all-logs?start_date=2030-01-01&end_date=2030-01-31',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['entries'] == []
+        dated_calls = [
+            c for c in cur.execute.call_args_list
+            if len(c.args) == 2
+            and date(2030, 1, 1) in tuple(c.args[1])
+            and date(2030, 1, 31) in tuple(c.args[1])
+        ]
+        assert len(dated_calls) == 8, (
+            'a source SELECT ran without the window bounds — newest-rows fallback')
+        assert cur.fetchall.call_count == 8
 
 
 # ============================================================================
@@ -1474,6 +1643,156 @@ class TestGetAdherence:
         body = resp.get_json()
         assert body['inputs'] == []
         assert len(body['excluded_unspecified']) == 1
+
+    # ------------------------------------------------------------------
+    # Timeframe-derived scheduling (minowa-mcp-bug-report.md Bug 3):
+    # stack-scheduled inputs leave doses_per_day NULL — the schedule lives
+    # on timeframes and must still produce an adherence row.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _tf_input(name='Lisinopril', dpd=None, timeframes=None):
+        return {
+            'id': uuid.uuid4(),
+            'name': name,
+            'input_type': 'medication',
+            'default_unit': 'mg',
+            'doses_per_day': dpd,
+            'direct_timeframe_id': None,
+            'timeframes': timeframes or [],
+        }
+
+    @staticmethod
+    def _tf(frequency='daily', custom_days=None, start_date=None, name='Wake Time'):
+        return {
+            'id': str(uuid.uuid4()),
+            'name': name,
+            'time_of_day': '08:00',
+            'frequency': frequency,
+            'custom_days': custom_days,
+            'start_date': start_date,
+            'source': 'stack',
+        }
+
+    def test_timeframe_scheduled_input_included(self, client, mock_db, auth_headers):
+        """dpd=NULL + one daily timeframe must be reported, not excluded."""
+        conn, cur = mock_db
+        row = self._tf_input(timeframes=[self._tf('daily')])
+        cur.fetchall.side_effect = [[row], []]
+
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['excluded_unspecified'] == []
+        assert len(body['inputs']) == 1
+        entry = body['inputs'][0]
+        assert entry['schedule_source'] == 'timeframes'
+        assert entry['scheduled_doses'] == 28
+
+    def test_custom_days_timeframe_math(self, client, mock_db, auth_headers):
+        """custom_days uses 0=Sun..6=Sat. Mon/Wed/Fri over 4 weeks = 12."""
+        conn, cur = mock_db
+        row = self._tf_input(timeframes=[self._tf('custom', custom_days=[1, 3, 5])])
+        cur.fetchall.side_effect = [[row], []]
+
+        # 2026-06-01 is a Monday; 4 full weeks.
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        assert len(body['inputs']) == 1
+        entry = body['inputs'][0]
+        assert entry['scheduled_doses'] == 12
+        # missed_windows only on firing days — zero logs means 12, not 28
+        assert len(entry['missed_windows']) == 12
+
+    def test_custom_days_sunday_convention_pinned(self, client, mock_db, auth_headers):
+        """custom_days=[0] means Sundays (0=Sun convention, NOT Python's 0=Mon)."""
+        conn, cur = mock_db
+        row = self._tf_input(timeframes=[self._tf('custom', custom_days=[0])])
+        cur.fetchall.side_effect = [[row], []]
+
+        # 2026-06-01 (Mon) .. 2026-06-28 (Sun) contains 4 Sundays: 7/14/21/28
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        assert body['inputs'][0]['scheduled_doses'] == 4
+
+    def test_weekly_null_anchor_stays_unspecified(self, client, mock_db, auth_headers):
+        """Weekly with no start_date has no derivable schedule — excluded."""
+        conn, cur = mock_db
+        row = self._tf_input(name='B12', timeframes=[self._tf('weekly')])
+        cur.fetchall.side_effect = [[row], []]
+
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        assert body['inputs'] == []
+        assert len(body['excluded_unspecified']) == 1
+
+    def test_once_inside_window(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        row = self._tf_input(timeframes=[self._tf('once', start_date='2026-06-15')])
+        cur.fetchall.side_effect = [[row], []]
+
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        assert body['inputs'][0]['scheduled_doses'] == 1
+
+    def test_daily_mid_window_start_prorates(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        row = self._tf_input(timeframes=[self._tf('daily', start_date='2026-06-15')])
+        cur.fetchall.side_effect = [[row], []]
+
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        # June 15..28 inclusive = 14 days
+        assert body['inputs'][0]['scheduled_doses'] == 14
+
+    def test_dpd_precedence_over_timeframes(self, client, mock_db, auth_headers):
+        """An explicit doses_per_day wins over timeframe derivation."""
+        conn, cur = mock_db
+        row = self._tf_input(dpd=2, timeframes=[self._tf('daily')])
+        cur.fetchall.side_effect = [[row], []]
+
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        entry = body['inputs'][0]
+        assert entry['schedule_source'] == 'doses_per_day'
+        assert entry['scheduled_doses'] == 56
+
+    def test_two_timeframes_sum_per_day(self, client, mock_db, auth_headers):
+        """An input in two stacks (wake + bedtime) expects 2 doses/day."""
+        conn, cur = mock_db
+        row = self._tf_input(timeframes=[
+            self._tf('daily', name='Wake Time'),
+            self._tf('daily', name='Bedtime'),
+        ])
+        cur.fetchall.side_effect = [[row], []]
+
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        assert body['inputs'][0]['scheduled_doses'] == 56
 
     def test_db_error_returns_500(self, client, mock_db, auth_headers):
         conn, cur = mock_db

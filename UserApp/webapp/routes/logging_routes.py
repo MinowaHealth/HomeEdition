@@ -6,10 +6,12 @@ Blueprint for logging meals, stacks, health inputs, food items, and viewing logs
 from flask import Blueprint, request, jsonify, g, current_app
 import db_driver
 from db_driver import sql
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import pytz
 import uuid
 import json
+
+from recurrence import is_recurring_on_date
 
 from utils import (
     require_auth,
@@ -589,13 +591,56 @@ def get_health_input_log():
 def get_all_logs():
     """Get recent log entries from all sources, merged and sorted by time.
 
-    Returns the standard {entries, pagination} envelope. Implementation runs
-    six per-source SELECTs (each LIMIT 100), merges in Python, and slices the
-    requested page. Total rows fetched is bounded at ~600; total in the
-    envelope reflects the merged set size, not the underlying source counts.
+    Returns the standard {entries, pagination} envelope plus an `applied`
+    block echoing the filters actually honored (start_date/end_date/kind/
+    input_id) and `sources_truncated` — sources whose per-source LIMIT
+    filled up, meaning the window may hold more rows than were fetched.
+
+    Implementation runs eight per-source SELECTs (LIMIT 100 each, 50 for
+    sleep/nutrition), merges in Python, and slices the requested page.
     A UNION-as-CTE rewrite is deferred; see UserAPIPagination plan Option A.
     """
     limit, offset = parse_pagination_params()
+    start_date, end_date, err = parse_date_range_params()
+    if err:
+        return err
+    kind = request.args.get('kind')
+    input_id = None
+    if request.args.get('input_id'):
+        input_id = parse_uuid(request.args.get('input_id'))
+        if input_id is None:
+            return jsonify({'error': 'Invalid input_id'}), 400
+
+    KIND_SOURCES = {
+        'medication': {'health_input_log', 'medication_metrics'},
+        'food': {'food'},
+    }
+    ALL_SOURCES = {'health_input_log', 'blood_pressure', 'temperature', 'weight',
+                   'blood_glucose', 'sleep_nutrition', 'medication_metrics', 'food'}
+    # Unknown / unmappable kinds (e.g. 'observation') run everything and are
+    # reported as not applied — honesty over rejection, the client enum will
+    # drift before this route does.
+    applied_kind = kind if kind in KIND_SOURCES else None
+    sources = KIND_SOURCES.get(kind, ALL_SOURCES)
+    if input_id:
+        sources = {'health_input_log'}
+    sources_truncated = []
+
+    def date_filter(col):
+        """AND-fragment + params applying the optional date window to `col`.
+
+        Session timezone is UTC, so `>= date` binds midnight UTC and the
+        end bound is exclusive next-day — full-day inclusive semantics.
+        """
+        frags, params = [], []
+        if start_date:
+            frags.append(sql.SQL("AND {c} >= %s").format(c=col))
+            params.append(start_date)
+        if end_date:
+            frags.append(sql.SQL("AND {c} < %s::date + INTERVAL '1 day'").format(c=col))
+            params.append(end_date)
+        return sql.SQL(' ').join(frags) if frags else sql.SQL(''), params
+
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -621,27 +666,39 @@ def get_all_logs():
     bp_deleted_filter = "AND is_deleted = 0" if has_bp_is_deleted else ""
     hm_deleted_prefix = "AND is_deleted = 0" if has_hm_is_deleted else ""
     hfl_deleted_filter = "AND fl.is_deleted = 0" if has_hfl_is_deleted else ""
+    hm_date_sql, hm_date_params = date_filter(sql.Identifier(hm_time_col))
 
     # Get health input logs (including freeform)
-    cur.execute(sql.SQL("""
-        SELECT hil.id, hil.{time_col} AS logged_at, hil.dosage_taken,
-               {free_text_select},
-               {free_dosage_select},
-               hi.name as input_name, hi.default_unit,
-               s.name as stack_name
-        FROM health_input_log hil
-        LEFT JOIN health_inputs hi ON hil.input_id = hi.id
-        LEFT JOIN stacks s ON hil.stack_id = s.id
-        WHERE hil.tenant_id = %s AND hil.user_id = %s {deleted_filter}
-        ORDER BY logged_at DESC
-        LIMIT 100
-    """).format(
-        time_col=sql.Identifier(hil_time_col),
-        free_text_select=sql.SQL('hil.free_text' if has_hil_free_text else 'NULL::text AS free_text'),
-        free_dosage_select=sql.SQL('hil.free_dosage' if has_hil_free_dosage else 'NULL::text AS free_dosage'),
-        deleted_filter=sql.SQL(hil_deleted_filter),
-    ), (tenant_id, user_id))
-    health_logs = cur.fetchall()
+    health_logs = []
+    if 'health_input_log' in sources:
+        hil_date_sql, hil_date_params = date_filter(
+            sql.SQL('hil.{}').format(sql.Identifier(hil_time_col)))
+        cur.execute(sql.SQL("""
+            SELECT hil.id, hil.{time_col} AS logged_at, hil.dosage_taken,
+                   {free_text_select},
+                   {free_dosage_select},
+                   hi.name as input_name, hi.default_unit,
+                   s.name as stack_name
+            FROM health_input_log hil
+            LEFT JOIN health_inputs hi ON hil.input_id = hi.id
+            LEFT JOIN stacks s ON hil.stack_id = s.id
+            WHERE hil.tenant_id = %s AND hil.user_id = %s
+            {deleted_filter}
+            {date_filter}
+            {input_filter}
+            ORDER BY logged_at DESC
+            LIMIT 100
+        """).format(
+            time_col=sql.Identifier(hil_time_col),
+            free_text_select=sql.SQL('hil.free_text' if has_hil_free_text else 'NULL::text AS free_text'),
+            free_dosage_select=sql.SQL('hil.free_dosage' if has_hil_free_dosage else 'NULL::text AS free_dosage'),
+            deleted_filter=sql.SQL(hil_deleted_filter),
+            date_filter=hil_date_sql,
+            input_filter=sql.SQL('AND hil.input_id = %s' if input_id else ''),
+        ), [tenant_id, user_id] + hil_date_params + ([input_id] if input_id else []))
+        health_logs = cur.fetchall()
+        if len(health_logs) == 100:
+            sources_truncated.append('health_input_log')
     for log in health_logs:
         # Use freeform text if input not found, else use catalog name
         display_name = log['input_name'] or log['free_text'] or 'Unknown medication'
@@ -660,17 +717,25 @@ def get_all_logs():
         })
 
     # Get blood pressure readings
-    cur.execute(sql.SQL("""
-        SELECT id, {time_col} AS measured_at, systolic, diastolic, pulse
-        FROM health_blood_pressure_readings
-        WHERE tenant_id = %s AND user_id = %s {deleted_filter}
-        ORDER BY measured_at DESC
-        LIMIT 100
-    """).format(
-        time_col=sql.Identifier(bp_time_col),
-        deleted_filter=sql.SQL(bp_deleted_filter),
-    ), (tenant_id, user_id))
-    bp_logs = cur.fetchall()
+    bp_logs = []
+    if 'blood_pressure' in sources:
+        bp_date_sql, bp_date_params = date_filter(sql.Identifier(bp_time_col))
+        cur.execute(sql.SQL("""
+            SELECT id, {time_col} AS measured_at, systolic, diastolic, pulse
+            FROM health_blood_pressure_readings
+            WHERE tenant_id = %s AND user_id = %s
+            {deleted_filter}
+            {date_filter}
+            ORDER BY measured_at DESC
+            LIMIT 100
+        """).format(
+            time_col=sql.Identifier(bp_time_col),
+            deleted_filter=sql.SQL(bp_deleted_filter),
+            date_filter=bp_date_sql,
+        ), [tenant_id, user_id] + bp_date_params)
+        bp_logs = cur.fetchall()
+        if len(bp_logs) == 100:
+            sources_truncated.append('blood_pressure')
     for log in bp_logs:
         pulse_str = f", HR: {log['pulse']}" if log['pulse'] else ""
         all_logs.append({
@@ -682,18 +747,24 @@ def get_all_logs():
         })
 
     # Get temperature readings
-    cur.execute(sql.SQL("""
-        SELECT id, {time_col} AS recorded_at, value, unit
-        FROM health_metrics
-        WHERE tenant_id = %s AND user_id = %s AND metric_type = 'temperature'
-        {deleted_prefix}
-        ORDER BY recorded_at DESC
-        LIMIT 100
-    """).format(
-        time_col=sql.Identifier(hm_time_col),
-        deleted_prefix=sql.SQL(hm_deleted_prefix),
-    ), (tenant_id, user_id))
-    temp_logs = cur.fetchall()
+    temp_logs = []
+    if 'temperature' in sources:
+        cur.execute(sql.SQL("""
+            SELECT id, {time_col} AS recorded_at, value, unit
+            FROM health_metrics
+            WHERE tenant_id = %s AND user_id = %s AND metric_type = 'temperature'
+            {deleted_prefix}
+            {date_filter}
+            ORDER BY recorded_at DESC
+            LIMIT 100
+        """).format(
+            time_col=sql.Identifier(hm_time_col),
+            deleted_prefix=sql.SQL(hm_deleted_prefix),
+            date_filter=hm_date_sql,
+        ), [tenant_id, user_id] + hm_date_params)
+        temp_logs = cur.fetchall()
+        if len(temp_logs) == 100:
+            sources_truncated.append('temperature')
     for log in temp_logs:
         all_logs.append({
             'id': str(log['id']),
@@ -704,18 +775,24 @@ def get_all_logs():
         })
 
     # Get weight readings
-    cur.execute(sql.SQL("""
-        SELECT id, {time_col} AS recorded_at, value, unit
-        FROM health_metrics
-        WHERE tenant_id = %s AND user_id = %s AND metric_type = 'weight'
-        {deleted_prefix}
-        ORDER BY recorded_at DESC
-        LIMIT 100
-    """).format(
-        time_col=sql.Identifier(hm_time_col),
-        deleted_prefix=sql.SQL(hm_deleted_prefix),
-    ), (tenant_id, user_id))
-    weight_logs = cur.fetchall()
+    weight_logs = []
+    if 'weight' in sources:
+        cur.execute(sql.SQL("""
+            SELECT id, {time_col} AS recorded_at, value, unit
+            FROM health_metrics
+            WHERE tenant_id = %s AND user_id = %s AND metric_type = 'weight'
+            {deleted_prefix}
+            {date_filter}
+            ORDER BY recorded_at DESC
+            LIMIT 100
+        """).format(
+            time_col=sql.Identifier(hm_time_col),
+            deleted_prefix=sql.SQL(hm_deleted_prefix),
+            date_filter=hm_date_sql,
+        ), [tenant_id, user_id] + hm_date_params)
+        weight_logs = cur.fetchall()
+        if len(weight_logs) == 100:
+            sources_truncated.append('weight')
     for log in weight_logs:
         all_logs.append({
             'id': str(log['id']),
@@ -726,18 +803,24 @@ def get_all_logs():
         })
 
     # Get blood glucose readings
-    cur.execute(sql.SQL("""
-        SELECT id, {time_col} AS recorded_at, value, unit
-        FROM health_metrics
-        WHERE tenant_id = %s AND user_id = %s AND metric_type = 'blood_glucose'
-        {deleted_prefix}
-        ORDER BY recorded_at DESC
-        LIMIT 100
-    """).format(
-        time_col=sql.Identifier(hm_time_col),
-        deleted_prefix=sql.SQL(hm_deleted_prefix),
-    ), (tenant_id, user_id))
-    glucose_logs = cur.fetchall()
+    glucose_logs = []
+    if 'blood_glucose' in sources:
+        cur.execute(sql.SQL("""
+            SELECT id, {time_col} AS recorded_at, value, unit
+            FROM health_metrics
+            WHERE tenant_id = %s AND user_id = %s AND metric_type = 'blood_glucose'
+            {deleted_prefix}
+            {date_filter}
+            ORDER BY recorded_at DESC
+            LIMIT 100
+        """).format(
+            time_col=sql.Identifier(hm_time_col),
+            deleted_prefix=sql.SQL(hm_deleted_prefix),
+            date_filter=hm_date_sql,
+        ), [tenant_id, user_id] + hm_date_params)
+        glucose_logs = cur.fetchall()
+        if len(glucose_logs) == 100:
+            sources_truncated.append('blood_glucose')
     for log in glucose_logs:
         all_logs.append({
             'id': str(log['id']),
@@ -750,18 +833,24 @@ def get_all_logs():
     # Get synced health metrics — exclude high-frequency telemetry (steps, heart_rate)
     # which can produce 1,000+ rows/day and drown out user-entered logs.
     # Steps/HR belong in the Analysis views, not the activity timeline.
-    cur.execute(sql.SQL("""
-        SELECT id, {time_col} AS recorded_at, metric_type, value, unit, notes, source
-        FROM health_metrics
-        WHERE tenant_id = %s AND user_id = %s AND metric_type IN ('sleep','nutrition')
-        {deleted_prefix}
-        ORDER BY recorded_at DESC
-        LIMIT 50
-    """).format(
-        time_col=sql.Identifier(hm_time_col),
-        deleted_prefix=sql.SQL(hm_deleted_prefix),
-    ), (tenant_id, user_id))
-    metric_logs = cur.fetchall()
+    metric_logs = []
+    if 'sleep_nutrition' in sources:
+        cur.execute(sql.SQL("""
+            SELECT id, {time_col} AS recorded_at, metric_type, value, unit, notes, source
+            FROM health_metrics
+            WHERE tenant_id = %s AND user_id = %s AND metric_type IN ('sleep','nutrition')
+            {deleted_prefix}
+            {date_filter}
+            ORDER BY recorded_at DESC
+            LIMIT 50
+        """).format(
+            time_col=sql.Identifier(hm_time_col),
+            deleted_prefix=sql.SQL(hm_deleted_prefix),
+            date_filter=hm_date_sql,
+        ), [tenant_id, user_id] + hm_date_params)
+        metric_logs = cur.fetchall()
+        if len(metric_logs) == 50:
+            sources_truncated.append('sleep_nutrition')
     for log in metric_logs:
         if log['metric_type'] == 'sleep':
             desc = f"Sleep: {log['value']} {log['unit'] or 'hours'}"
@@ -780,18 +869,24 @@ def get_all_logs():
         })
 
     # Get medication metrics
-    cur.execute(sql.SQL("""
-        SELECT id, {time_col} AS recorded_at, metric_type, value, unit, notes, source
-        FROM health_metrics
-        WHERE tenant_id = %s AND user_id = %s AND metric_type = 'medication'
-        {deleted_prefix}
-        ORDER BY recorded_at DESC
-        LIMIT 100
-    """).format(
-        time_col=sql.Identifier(hm_time_col),
-        deleted_prefix=sql.SQL(hm_deleted_prefix),
-    ), (tenant_id, user_id))
-    med_logs = cur.fetchall()
+    med_logs = []
+    if 'medication_metrics' in sources:
+        cur.execute(sql.SQL("""
+            SELECT id, {time_col} AS recorded_at, metric_type, value, unit, notes, source
+            FROM health_metrics
+            WHERE tenant_id = %s AND user_id = %s AND metric_type = 'medication'
+            {deleted_prefix}
+            {date_filter}
+            ORDER BY recorded_at DESC
+            LIMIT 100
+        """).format(
+            time_col=sql.Identifier(hm_time_col),
+            deleted_prefix=sql.SQL(hm_deleted_prefix),
+            date_filter=hm_date_sql,
+        ), [tenant_id, user_id] + hm_date_params)
+        med_logs = cur.fetchall()
+        if len(med_logs) == 100:
+            sources_truncated.append('medication_metrics')
     for log in med_logs:
         name = None
         status = None
@@ -838,26 +933,35 @@ def get_all_logs():
         })
 
     # Get food logs (including freeform)
-    cur.execute(sql.SQL("""
-        SELECT fl.id, fl.{time_col} AS logged_at, fl.{qty_col} AS servings,
-               {unit_select},
-               fl.notes, fl.food_item_id,
-               {free_text_select},
-               fi.name as food_name
-        FROM health_food_logv2 fl
-        LEFT JOIN health_food_itemsv2 fi ON {food_join}
-        WHERE fl.tenant_id = %s AND fl.user_id = %s {deleted_filter}
-        ORDER BY logged_at DESC
-        LIMIT 100
-    """).format(
-        time_col=sql.Identifier(hfl_time_col),
-        qty_col=sql.Identifier(hfl_qty_col),
-        unit_select=sql.SQL('fl.unit' if has_hfl_unit else 'NULL::text AS unit'),
-        free_text_select=sql.SQL('fl.free_text' if has_hfl_free_text else 'NULL::text AS free_text'),
-        food_join=sql.SQL(food_join),
-        deleted_filter=sql.SQL(hfl_deleted_filter),
-    ), (tenant_id, user_id))
-    food_logs = cur.fetchall()
+    food_logs = []
+    if 'food' in sources:
+        hfl_date_sql, hfl_date_params = date_filter(
+            sql.SQL('fl.{}').format(sql.Identifier(hfl_time_col)))
+        cur.execute(sql.SQL("""
+            SELECT fl.id, fl.{time_col} AS logged_at, fl.{qty_col} AS servings,
+                   {unit_select},
+                   fl.notes, fl.food_item_id,
+                   {free_text_select},
+                   fi.name as food_name
+            FROM health_food_logv2 fl
+            LEFT JOIN health_food_itemsv2 fi ON {food_join}
+            WHERE fl.tenant_id = %s AND fl.user_id = %s
+            {deleted_filter}
+            {date_filter}
+            ORDER BY logged_at DESC
+            LIMIT 100
+        """).format(
+            time_col=sql.Identifier(hfl_time_col),
+            qty_col=sql.Identifier(hfl_qty_col),
+            unit_select=sql.SQL('fl.unit' if has_hfl_unit else 'NULL::text AS unit'),
+            free_text_select=sql.SQL('fl.free_text' if has_hfl_free_text else 'NULL::text AS free_text'),
+            food_join=sql.SQL(food_join),
+            deleted_filter=sql.SQL(hfl_deleted_filter),
+            date_filter=hfl_date_sql,
+        ), [tenant_id, user_id] + hfl_date_params)
+        food_logs = cur.fetchall()
+        if len(food_logs) == 100:
+            sources_truncated.append('food')
     for log in food_logs:
         # Use freeform text if food item not found, else use catalog name
         display_name = log['food_name'] or log['free_text'] or 'Unknown food'
@@ -898,7 +1002,15 @@ def get_all_logs():
 
     total = len(all_logs)
     sliced = all_logs[offset:offset + limit]
-    return jsonify(paginated_response(sliced, total, limit, offset, key='entries'))
+    body = paginated_response(sliced, total, limit, offset, key='entries')
+    body['applied'] = {
+        'start_date': start_date.isoformat() if start_date else None,
+        'end_date': end_date.isoformat() if end_date else None,
+        'kind': applied_kind,
+        'input_id': str(input_id) if input_id else None,
+        'sources_truncated': sources_truncated,
+    }
+    return jsonify(body)
 
 
 @bp.route('/health-input-log/<log_id>', methods=['PUT'])
@@ -1471,6 +1583,33 @@ def delete_log_promotion(promo_id):
 # ADHERENCE REPORT
 # ============================================================================
 
+
+def _timeframe_fires_on(tf, d):
+    """Does timeframe dict `tf` fire on date `d`?
+
+    Schedule fallback for inputs whose doses_per_day is NULL — the schedule
+    lives on stack/direct timeframes (minowa-mcp-bug-report.md Bug 3).
+
+    `is_recurring_on_date` returns False for a NULL anchor, which is right
+    for weekly/monthly/annual (no anchor = no derivable schedule) but would
+    wrongly zero out the common anchor-less daily timeframe — so daily and
+    custom handle their start_date guard here.
+    """
+    freq = tf.get('frequency') or 'daily'
+    start_str = tf.get('start_date')
+    anchor = date.fromisoformat(str(start_str)[:10]) if start_str else None
+    if freq == 'daily':
+        return anchor is None or d >= anchor
+    if freq == 'custom':
+        if anchor and d < anchor:
+            return False
+        # custom_days convention: 0=Sun … 6=Sat (schema), not Python's 0=Mon
+        return ((d.weekday() + 1) % 7) in (tf.get('custom_days') or [])
+    if freq == 'once':
+        return anchor == d
+    return is_recurring_on_date(freq, anchor, d)
+
+
 @bp.route('/adherence', methods=['GET'])
 @require_auth
 def get_adherence():
@@ -1553,6 +1692,8 @@ def get_adherence():
                                'name', tf.name,
                                'time_of_day', to_char(tf.time_of_day, 'HH24:MI'),
                                'frequency', tf.frequency,
+                               'custom_days', tf.custom_days,
+                               'start_date', tf.start_date,
                                'source', CASE
                                    WHEN tf.id = hi.timeframe_id THEN 'direct'
                                    ELSE 'stack'
@@ -1578,13 +1719,23 @@ def get_adherence():
         """).format(where=where_clause), params)
         input_rows = cur.fetchall()
 
-        scheduled_rows = [r for r in input_rows if r['doses_per_day'] and r['doses_per_day'] > 0]
+        # doses_per_day (explicit) takes precedence; NULL falls back to the
+        # timeframe schedule already joined above. NULL with no timeframes —
+        # or timeframes that never fire in the window — stays unspecified.
+        scheduled_rows = [(r, 'doses_per_day') for r in input_rows
+                          if r['doses_per_day'] and r['doses_per_day'] > 0]
+        scheduled_rows += [(r, 'timeframes') for r in input_rows
+                           if r['doses_per_day'] is None and r['timeframes']]
         excluded_prn = [{'input_id': str(r['id']), 'name': r['name']} for r in input_rows if r['doses_per_day'] == -1]
-        excluded_unspecified = [{'input_id': str(r['id']), 'name': r['name']} for r in input_rows if r['doses_per_day'] is None]
+        excluded_unspecified = [{'input_id': str(r['id']), 'name': r['name']}
+                                for r in input_rows
+                                if r['doses_per_day'] is None and not r['timeframes']]
+
+        window_days = [start_date + timedelta(days=i) for i in range(days)]
 
         results = []
         if scheduled_rows:
-            scheduled_ids = [r['id'] for r in scheduled_rows]
+            scheduled_ids = [r['id'] for r, _ in scheduled_rows]
             cur.execute("""
                 SELECT input_id,
                        (logged_at AT TIME ZONE 'UTC')::date AS log_date,
@@ -1607,20 +1758,36 @@ def get_adherence():
                 logs_by_input_day[key] = int(lr['log_count'])
                 logs_by_input[lr['input_id']] = logs_by_input.get(lr['input_id'], 0) + int(lr['log_count'])
 
-            for row in scheduled_rows:
+            for row, schedule_source in scheduled_rows:
                 dpd = row['doses_per_day']
-                scheduled_doses = dpd * days
+                if schedule_source == 'doses_per_day':
+                    expected_by_day = {d: dpd for d in window_days}
+                else:
+                    tfs = row['timeframes'] or []
+                    expected_by_day = {
+                        d: sum(1 for tf in tfs if _timeframe_fires_on(tf, d))
+                        for d in window_days
+                    }
+                scheduled_doses = sum(expected_by_day.values())
+                if scheduled_doses == 0:
+                    # Timeframes exist but never fire in this window (e.g.
+                    # weekly with no anchor) — no derivable schedule.
+                    excluded_unspecified.append({'input_id': str(row['id']), 'name': row['name']})
+                    continue
+
                 logged_doses = logs_by_input.get(row['id'], 0)
                 pct = round(min(100.0, (logged_doses / scheduled_doses) * 100.0), 1) if scheduled_doses else 0.0
 
                 missed_windows = []
-                for day_offset in range(days):
-                    d = start_date + timedelta(days=day_offset)
+                for d in window_days:
+                    expected = expected_by_day[d]
+                    if expected <= 0:
+                        continue
                     logged_that_day = logs_by_input_day.get((row['id'], d), 0)
-                    if logged_that_day < dpd:
+                    if logged_that_day < expected:
                         missed_windows.append({
                             'date': d.isoformat(),
-                            'expected': dpd,
+                            'expected': expected,
                             'logged': logged_that_day,
                         })
 
@@ -1631,6 +1798,7 @@ def get_adherence():
                     'default_unit': row['default_unit'],
                     'doses_per_day': dpd,
                     'usage_type': 'scheduled',
+                    'schedule_source': schedule_source,
                     'scheduled_doses': scheduled_doses,
                     'logged_doses': logged_doses,
                     'pct_adherence': pct,

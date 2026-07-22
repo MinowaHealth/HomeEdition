@@ -14,6 +14,8 @@ display columns so the endpoint never 5xxs on an infra hiccup. The
 `mode` field on each result (`semantic` | `keyword`) tells the caller
 which path produced the hit.
 """
+from datetime import date, timedelta
+
 from flask import Blueprint, request, jsonify, g, current_app
 from db_driver import sql
 
@@ -114,7 +116,11 @@ def search_user_data():
         if from_str:
             from_filter = local_to_utc(from_str)
         if to_str:
-            to_filter = local_to_utc(to_str)
+            # Exclusive next-day bound so the `to` day is fully included.
+            # Localize the next calendar day rather than adding 24h to a
+            # UTC instant — the latter drifts an hour across DST.
+            to_filter = local_to_utc(
+                (date.fromisoformat(to_str[:10]) + timedelta(days=1)).isoformat())
     except Exception:
         return jsonify({'error': 'from/to must be ISO YYYY-MM-DD'}), 400
 
@@ -161,7 +167,7 @@ def search_user_data():
                 conditions.append(sql.SQL("{} >= %s").format(sql.Identifier(ts_col)))
                 params.append(from_filter)
             if to_filter:
-                conditions.append(sql.SQL("{} <= %s").format(sql.Identifier(ts_col)))
+                conditions.append(sql.SQL("{} < %s").format(sql.Identifier(ts_col)))
                 params.append(to_filter)
 
             if query_vec and table_has_column(conn, table, embed_col):
@@ -258,6 +264,7 @@ def search_user_data():
             'query': q,
             'scope': scope,
             'mode': mode,
+            'applied': {'from': from_str, 'to': to_str},
             'results': results[:k],
         })
 

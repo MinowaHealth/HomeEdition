@@ -96,9 +96,11 @@ def _parse_iso_date(s: str) -> date:
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
     start, end = _resolve_window(arguments)
 
+    # The /adherence route reads start_date/end_date (parse_date_range_params);
+    # `from`/`to` were silently dropped — minowa-mcp-bug-report.md Bug 3b.
     params: Dict[str, Any] = {
-        "from": start.isoformat(),
-        "to": end.isoformat(),
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
     }
     input_ids = arguments.get("input_ids")
     if isinstance(input_ids, list) and input_ids:
@@ -129,9 +131,15 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
 
     # Coverage for adherence is based on the number of scheduled-input rows
     # the report covers — not the raw log count, which would double-count
-    # multi-dose days.
+    # multi-dose days. The window comes from the route's response (what was
+    # actually applied), falling back to the request only if absent.
+    route_window = response.get("window") or {}
     coverage = {
-        "window": window_block(start, end),
+        "window": (
+            window_block(route_window["from"], route_window["to"])
+            if route_window.get("from") and route_window.get("to")
+            else window_block(start, end)
+        ),
         "counts": {
             "rows": len(inputs),
             "sources_represented": ["manual"],  # health_input_log is manual-only

@@ -113,13 +113,37 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
 
     truncated = bool(pagination and pagination.get("has_more"))
 
+    # Coverage honesty: trust the server's `applied` echo, not our request.
+    # A filter we asked for but the server didn't apply becomes a gap.
+    applied = resp.get("applied") if isinstance(resp, dict) else None
+    gaps = []
+    if not events:
+        gaps.append({"reason": "no activity in window"})
+    if applied is None:
+        gaps.append({"reason": "server did not confirm which filters were applied"})
+    else:
+        if applied.get("start_date") != start.isoformat() or applied.get("end_date") != end.isoformat():
+            gaps.append({"reason": "date window not applied by server"})
+        if kind != "all" and applied.get("kind") != kind:
+            gaps.append({"reason": f"kind filter '{kind}' not applied — results include all types"})
+        if input_id and applied.get("input_id") != input_id:
+            gaps.append({"reason": "input_id filter not applied by server"})
+        truncated_sources = applied.get("sources_truncated") or []
+        if truncated_sources:
+            truncated = True
+            gaps.append({
+                "reason": "window may be incomplete for "
+                + ", ".join(truncated_sources)
+                + " — narrow the date range"
+            })
+
     coverage = {
         "window": window_block(start, end),
         "counts": {
             "rows": len(events),
             "sources_represented": ["manual"] if events else [],
         },
-        "gaps": [] if events else [{"reason": "no activity in window"}],
+        "gaps": gaps,
         "truncated": truncated,
     }
 

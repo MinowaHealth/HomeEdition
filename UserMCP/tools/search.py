@@ -102,12 +102,20 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
     # Represented source buckets: everything in the search endpoint is
     # manually-entered (observations, inputs, notes, allergies) rather
     # than wearable-sourced, so the envelope always reports `manual`.
+    gaps = []
+    if not results:
+        gaps.append({"reason": f"no matches for '{q}' in scope '{scope}'"})
+    if mode == "keyword":
+        gaps.append({
+            "reason": "semantic search unavailable — keyword-only results (exact-phrase match)"
+        })
+
     coverage = {
         "counts": {
             "rows": len(results),
             "sources_represented": ["manual"] if results else [],
         },
-        "gaps": [] if results else [{"reason": f"no matches for '{q}' in scope '{scope}'"}],
+        "gaps": gaps,
         "truncated": False,
         "mode": mode,
     }

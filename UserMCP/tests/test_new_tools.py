@@ -167,8 +167,13 @@ async def test_vitals_rollup_computes_min_max_avg():
             {"systolic": 120, "diastolic": 80, "measured_at": "2026-04-01"},
             {"systolic": 130, "diastolic": 85, "measured_at": "2026-04-02"},
         ]},
-        "/weight": {"readings": [{"value": 80, "measured_at": "2026-04-01"}]},
+        # live vitals API returns the value under a named key, not 'value'
+        "/weight": {"entries": [{"weight": 185.0, "unit": "lbs", "timestamp": "2026-04-01"}]},
         "/temperature": {"readings": []},
+        "/blood-glucose": {"entries": [
+            {"blood_glucose": 99.0, "unit": "mg/dL", "timestamp": "2026-04-01"},
+            {"blood_glucose": 110.0, "unit": "mg/dL", "timestamp": "2026-04-02"},
+        ]},
     })
 
     env = await handle({"days": 30}, client)
@@ -178,6 +183,9 @@ async def test_vitals_rollup_computes_min_max_avg():
     assert bp["rollup_systolic"]["count"] == 2
     assert bp["rollup_systolic"]["min"] == 120
     assert bp["rollup_systolic"]["max"] == 130
+    assert env["data"]["weight"]["rollup"]["count"] == 1
+    glucose = env["data"]["blood_glucose"]
+    assert glucose["rollup"] == {"count": 2, "min": 99.0, "max": 110.0, "avg": 104.5}
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +259,93 @@ async def test_activity_detects_truncation_from_has_more():
     assert env["coverage"]["truncated"] is True
 
 
+@pytest.mark.asyncio
+async def test_activity_gap_when_server_omits_applied():
+    """Old backend (no `applied` echo) → coverage must flag unconfirmed filters."""
+    from tools.activity import handle
+
+    client = _make_client({
+        "/all-logs": {"entries": [{"id": 1, "logged_at": "2026-05-10"}]},
+    })
+
+    env = await handle({"from": "2026-05-01", "to": "2026-05-15"}, client)
+
+    reasons = " ".join(g["reason"] for g in env["coverage"]["gaps"])
+    assert "did not confirm" in reasons
+
+
+@pytest.mark.asyncio
+async def test_activity_no_gaps_when_applied_matches():
+    from tools.activity import handle
+
+    client = _make_client({
+        "/all-logs": {
+            "entries": [{"id": 1, "logged_at": "2026-05-10"}],
+            "applied": {
+                "start_date": "2026-05-01",
+                "end_date": "2026-05-15",
+                "kind": "medication",
+                "input_id": None,
+                "sources_truncated": [],
+            },
+        },
+    })
+
+    env = await handle(
+        {"from": "2026-05-01", "to": "2026-05-15", "kind": "medication"}, client)
+
+    assert env["coverage"]["gaps"] == []
+    assert env["coverage"]["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_activity_gap_when_kind_not_applied():
+    from tools.activity import handle
+
+    client = _make_client({
+        "/all-logs": {
+            "entries": [{"id": 1, "logged_at": "2026-05-10"}],
+            "applied": {
+                "start_date": "2026-05-01",
+                "end_date": "2026-05-15",
+                "kind": None,
+                "input_id": None,
+                "sources_truncated": [],
+            },
+        },
+    })
+
+    env = await handle(
+        {"from": "2026-05-01", "to": "2026-05-15", "kind": "observation"}, client)
+
+    reasons = " ".join(g["reason"] for g in env["coverage"]["gaps"])
+    assert "kind filter 'observation' not applied" in reasons
+
+
+@pytest.mark.asyncio
+async def test_activity_truncated_sources_set_truncated_and_gap():
+    from tools.activity import handle
+
+    client = _make_client({
+        "/all-logs": {
+            "entries": [{"id": 1, "logged_at": "2026-05-10"}],
+            "applied": {
+                "start_date": "2026-05-01",
+                "end_date": "2026-05-15",
+                "kind": None,
+                "input_id": None,
+                "sources_truncated": ["health_input_log"],
+            },
+        },
+    })
+
+    env = await handle({"from": "2026-05-01", "to": "2026-05-15"}, client)
+
+    assert env["coverage"]["truncated"] is True
+    reasons = " ".join(g["reason"] for g in env["coverage"]["gaps"])
+    assert "health_input_log" in reasons
+
+
 # ---------------------------------------------------------------------------
 # nutrition
 # ---------------------------------------------------------------------------
@@ -296,6 +391,40 @@ async def test_search_surfaces_mode_in_coverage():
     _assert_envelope(env)
     assert env["coverage"]["mode"] == "keyword"
     assert len(env["data"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_search_keyword_mode_emits_degradation_gap():
+    """Keyword-only mode must be an explicit gap, not just a mode field."""
+    from tools.search import handle
+
+    client = _make_client({
+        "/search": {
+            "mode": "keyword",
+            "results": [{"table": "observations", "id": "o1", "text": "Elevated BP"}],
+        },
+    })
+
+    env = await handle({"q": "blood pressure"}, client)
+
+    reasons = " ".join(g["reason"] for g in env["coverage"]["gaps"])
+    assert "semantic search unavailable" in reasons
+
+
+@pytest.mark.asyncio
+async def test_search_semantic_mode_has_no_degradation_gap():
+    from tools.search import handle
+
+    client = _make_client({
+        "/search": {
+            "mode": "semantic",
+            "results": [{"table": "observations", "id": "o1", "text": "Elevated BP"}],
+        },
+    })
+
+    env = await handle({"q": "blood pressure"}, client)
+
+    assert env["coverage"]["gaps"] == []
 
 
 @pytest.mark.asyncio

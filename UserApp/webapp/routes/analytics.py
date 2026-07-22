@@ -436,13 +436,16 @@ def get_lab_results():
                     reference_range, interpretation,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(loinc_code, display_name)
-                        ORDER BY effective_date DESC
+                        -- NULLS LAST: DESC alone sorts NULLs first, so a
+                        -- NULL-dated duplicate would shadow the dated draw
+                        -- in every group (minowa-mcp-bug-report.md Bug 4)
+                        ORDER BY effective_date DESC NULLS LAST
                     ) as rn
                 FROM hkit_lab_observations
                 WHERE user_id = %s AND value_quantity IS NOT NULL
             )
             SELECT * FROM ranked WHERE rn = 1
-            ORDER BY effective_date DESC
+            ORDER BY effective_date DESC NULLS LAST
         """, (user_id,))
 
         results = cur.fetchall()
@@ -1074,8 +1077,12 @@ def get_dashboard():
         # Rows keep the unit they were entered in, so canonicalize (lbs / F /
         # mg/dL) before aggregating — otherwise mixed-unit history averages
         # into nonsense. CASE mirrors unit_conversion.CANONICAL_UNITS.
+        # Manual entry stores 'temperature', HealthKit stores 'body_temperature'
+        # — same vital, so fold both into the 'body_temperature' bucket the
+        # response contract already exposes.
         cur.execute("""
-            SELECT metric_type,
+            SELECT CASE WHEN metric_type = 'temperature'
+                        THEN 'body_temperature' ELSE metric_type END AS metric_type,
                    COUNT(*)       AS count,
                    AVG(cv)::float AS avg_value,
                    MIN(cv)::float AS min_value,
@@ -1097,8 +1104,8 @@ def get_dashboard():
                   AND recorded_at >= %s AND recorded_at < %s
                   AND value IS NOT NULL
             ) canonical
-            GROUP BY metric_type
-        """, (user_id, list(_DASHBOARD_METRIC_TYPES), start_ts, end_ts))
+            GROUP BY 1
+        """, (user_id, list(_DASHBOARD_METRIC_TYPES) + ['temperature'], start_ts, end_ts))
         metric_rollup = {r['metric_type']: r for r in cur.fetchall()}
 
         unit_system = g.user.get('unit_system', 'imperial')
@@ -1108,16 +1115,18 @@ def get_dashboard():
             if not agg:
                 metrics_summary[mtype] = {'count': 0}
                 continue
-            # Latest row per type for display
+            # Latest row per type for display ('body_temperature' spans both
+            # stored spellings, matching the rollup above)
+            spellings = ['temperature', 'body_temperature'] if mtype == 'body_temperature' else [mtype]
             cur.execute("""
                 SELECT recorded_at, value, unit
                 FROM health_metrics
                 WHERE user_id = %s
-                  AND metric_type = %s
+                  AND metric_type = ANY(%s::text[])
                   AND recorded_at < %s
                 ORDER BY recorded_at DESC
                 LIMIT 1
-            """, (user_id, mtype, end_ts))
+            """, (user_id, spellings, end_ts))
             latest = cur.fetchone()
             latest_summary = None
             if latest:
