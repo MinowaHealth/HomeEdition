@@ -137,6 +137,10 @@ services:
     # All values from local.env via ${VAR:-default}. Hardcode only container-internal names.
     environment:
       API_BASE_URL: ${API_BASE_URL:-http://hb-local-webapp:80}
+      # Web-app origin used to absolutize document view links in MCP
+      # responses — set to the box's LAN address in local.env so links
+      # open from other household machines.
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost}
       MCP_PORT: "${MCP_PORT:-13282}"
       # Bind all interfaces inside the container so the host port mapping reaches us.
       # (Code default in UserMCP/mcp_server.py is 127.0.0.1, which traps the service in the container.)

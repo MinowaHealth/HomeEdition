@@ -1,6 +1,6 @@
 # User API Reference
 
-**Date**: 2026-03-23
+**Date**: 2026-07-21 12:00 PDT
 **Base URL**: `https://localhost` (pilot) / `https://localhost` (production)
 **Auth**: All endpoints require `@require_auth` unless noted. See [Authentication.md](Authentication.md).
 **Source**: [`UserApp/webapp/`](../UserApp/webapp/)
@@ -1558,6 +1558,73 @@ Alternatively, provide a pre-computed query vector:
 
 `query_embedded_by`: "server" or "client" — indicates whether the query was embedded server-side or the client provided a pre-computed vector.
 
+### GET /api/v1/search
+
+Semantic-first search across a curated set of the user's tables — the
+backend for the UserMCP `search_my_data` tool and the SPA documents search.
+Unlike `POST /semantic-search` (low-level per-table tuning), this takes one
+query, one scope keyword, and a bounded overall top-K.
+
+**Query params:**
+
+| Param | Default | Description |
+|-------|---------|-------------|
+| `q` | required | Query text (1..500 chars) |
+| `scope` | `all` | `all`, `observations`, `inputs`, `conditions`, `allergies`, `food`, `documents`, `notes`. `documents` covers `documents` + `document_annotations`; `all` includes both. |
+| `mode` | `auto` | `auto` = semantic with keyword fallback; `semantic` = embeddings required (503 `EMBEDDING_UNAVAILABLE` if Ollama is down); `keyword` = full-text only, no embedding call |
+| `k` | 5 | Overall top-K, 1..25 |
+| `from` / `to` | — | `YYYY-MM-DD` window (inclusive `to` day) |
+
+Keyword mode on `documents` uses PostgreSQL FTS (`websearch_to_tsquery`
+over title + `ocr_text_full`, `ts_rank_cd` ordering) — soft-deleted
+documents are always excluded. Other tables fall back to ILIKE on their
+display column.
+
+**Response (200):**
+```json
+{
+  "query": "magnesium sleep",
+  "scope": "documents",
+  "mode": "keyword",
+  "requested_mode": "keyword",
+  "applied": {"from": null, "to": null},
+  "results": [
+    {
+      "table": "documents",
+      "id": "uuid",
+      "content": "Sleep supplement notes",
+      "timestamp": "2026-07-01T09:00:00+00:00",
+      "similarity": null,
+      "rank": 0.0891,
+      "mode": "keyword",
+      "title": "Sleep supplement notes",
+      "filename": "note.txt",
+      "mime_type": "text/plain",
+      "source": "upload",
+      "snippet": "«Magnesium» glycinate 400mg improved my «sleep» latency",
+      "matched_pages": [1, 3],
+      "links": {
+        "web": "/?activity=documents&doc=uuid",
+        "download": "/api/v1/documents/uuid/download"
+      }
+    }
+  ]
+}
+```
+
+Document hits are enriched with `title`/`filename`/`mime_type`/`source`, a
+`snippet` (`ts_headline` with plain-text `«»` highlight markers in keyword
+mode; leading text otherwise), `matched_pages` (keyword mode, max 5), and
+session-gated `links`. Annotation hits carry the **parent** `document_id`
+plus `links` to that document. `similarity` (0..1) is set on semantic hits;
+`rank` on FTS keyword hits.
+
+**Errors:**
+- 400: missing/overlong `q`, unknown `scope` or `mode`, bad `k` or dates
+- 503 `{"code": "EMBEDDING_UNAVAILABLE"}`: `mode=semantic` and the
+  embedding service is unreachable
+- 503 `{"code": "QUERY_TIMEOUT"}`: statement timeout
+
 ---
 
 ## Mobile Events (v2)
@@ -1672,12 +1739,15 @@ List the user's documents (paginated, excludes soft-deleted).
 | `limit` | 50 | 200 | Results per page |
 | `offset` | 0 | — | Pagination offset |
 
-**Response (200):**
+Optional `?folder_id=<uuid>` scopes the listing to one folder.
+
+**Response (200):** standard pagination envelope (`key='entries'`):
 ```json
 {
-  "documents": [
+  "entries": [
     {
       "id": "uuid",
+      "folder_id": "uuid",
       "filename": "lab-results.pdf",
       "mime_type": "application/pdf",
       "file_size_bytes": 245760,
@@ -1688,13 +1758,12 @@ List the user's documents (paginated, excludes soft-deleted).
       "title": "Lab Results March 2026",
       "category": "labs",
       "tags": null,
+      "storage_tier": "local",
       "created_at": "2026-03-15T10:00:00+00:00",
       "updated_at": "2026-03-15T10:00:00+00:00"
     }
   ],
-  "total": 12,
-  "limit": 50,
-  "offset": 0
+  "pagination": {"total": 12, "limit": 50, "offset": 0, "has_more": false}
 }
 ```
 
@@ -1728,9 +1797,17 @@ Document detail including page list (pages populated after OCR processing in Pha
       "quality_label": "green",
       "image_path": "/data/userdocs/1/uuid/uuid/page_001.png"
     }
-  ]
+  ],
+  "links": {
+    "web": "/?activity=documents&doc=uuid",
+    "download": "/api/v1/documents/uuid/download"
+  }
 }
 ```
+
+`links` are session-gated relative paths (added 2026-07-15): the same-origin
+SPA uses them directly; UserMCP absolutizes them with its `APP_BASE_URL`.
+There are no public share tokens — opening a link requires a logged-in session.
 
 **Response (404):** `{"error": "Document not found"}`
 
@@ -1779,6 +1856,61 @@ Soft-delete a document (sets `deleted_at`, preserves file on disk).
 
 **Response (200):** `{"deleted": true, "id": "uuid"}`
 **Response (404):** `{"error": "Document not found"}`
+
+### POST /api/v1/documents/chat-summaries
+
+*Added 2026-07-15.* Persist an AI chat-session summary into the user's
+document collection. The summary becomes an ordinary document
+(`source='chat_summary'`, `mime_type='text/markdown'`,
+`category='ai_session'`) in the per-user **'AI Sessions'** system folder —
+full-text and semantically searchable via `GET /api/v1/search`, and
+delegate-visible like any other document. This is the backend for the
+UserMCP `save_chat_summary` tool.
+
+**Request:**
+```json
+{
+  "title": "Lab review — July 2026",
+  "summary_markdown": "# What we discussed\n...",
+  "model_id": "claude-fable-5",
+  "source_tools": ["search_my_data", "get_lab_history"],
+  "session_started_at": "2026-07-15T10:00:00Z",
+  "created_via": "usermcp"
+}
+```
+
+- `title` (required, ≤200 chars) and `summary_markdown` (required, ≤256 KB)
+- `model_id`, `source_tools` (list of strings), `session_started_at`,
+  `created_via` are optional provenance, stored in `documents.provenance` (JSONB)
+- The 'AI Sessions' folder is self-healed if the account predates it
+- Every create writes an `audit_log` row
+  (`action='document.chat_summary_created'`) — HIPAA §164.312(b)
+
+**Response (201):** the created document row plus `links`:
+```json
+{
+  "id": "uuid",
+  "folder_id": "uuid",
+  "filename": "Lab-review-July-2026.md",
+  "mime_type": "text/markdown",
+  "file_size_bytes": 1834,
+  "sha256": "…",
+  "source": "chat_summary",
+  "ocr_status": "not_needed",
+  "title": "Lab review — July 2026",
+  "category": "ai_session",
+  "created_at": "2026-07-15T14:00:00+00:00",
+  "links": {
+    "web": "/?activity=documents&doc=uuid",
+    "download": "/api/v1/documents/uuid/download"
+  }
+}
+```
+
+**Errors:**
+- 400: missing/oversized `title` or `summary_markdown`, non-list `source_tools`
+- 503 `{"code": "SCHEMA_NOT_READY"}`: the 2026-07-15 schema delta has not
+  been applied yet (deploy-order guard)
 
 ---
 

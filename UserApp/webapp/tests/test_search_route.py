@@ -1,13 +1,14 @@
 """
 Unit tests for GET /api/v1/search.
 
-Focus: argument validation and the keyword-fallback path when Ollama is
-unreachable. Semantic-path SQL is exercised in integration tests against
-a real pgvector database.
+Focus: argument validation, the keyword-fallback path when Ollama is
+unreachable, the mode param (2026-07-15 documents feature), and the
+document-hit enrichment pass. Semantic-path SQL is exercised in
+integration tests against a real pgvector database.
 """
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 class TestSearchValidation:
@@ -40,6 +41,143 @@ class TestSearchValidation:
     def test_rejects_k_over_cap(self, client, mock_db, auth_headers):
         resp = client.get('/api/v1/search?q=bp&k=100', headers=auth_headers)
         assert resp.status_code == 400
+
+    def test_rejects_unknown_mode(self, client, mock_db, auth_headers):
+        resp = client.get('/api/v1/search?q=bp&mode=fuzzy', headers=auth_headers)
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert 'unknown mode' in body['error']
+        assert body['supported'] == ['auto', 'semantic', 'keyword']
+
+
+class TestSearchModes:
+    def test_semantic_mode_503_when_embeddings_down(self, client, mock_db, auth_headers):
+        with patch('embedding_utils.get_embedding', return_value=None):
+            resp = client.get(
+                '/api/v1/search?q=bp&mode=semantic', headers=auth_headers)
+        assert resp.status_code == 503
+        assert resp.get_json()['code'] == 'EMBEDDING_UNAVAILABLE'
+
+    def test_keyword_mode_skips_embedding_call(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = []
+        embed = MagicMock(return_value=[0.1] * 768)
+        with patch('embedding_utils.get_embedding', embed), \
+             patch('routes.search.table_has_column', return_value=True):
+            resp = client.get(
+                '/api/v1/search?q=bp&scope=observations&mode=keyword',
+                headers=auth_headers)
+        assert resp.status_code == 200
+        embed.assert_not_called()
+        body = resp.get_json()
+        assert body['mode'] == 'keyword'
+        assert body['requested_mode'] == 'keyword'
+
+
+class TestSearchDocumentsSQL:
+    """Source-level pins for the documents branches — SQL behaviors a
+    mocked cursor can't meaningfully exercise (twin-contract style)."""
+
+    def test_fts_keyword_branch_pinned(self):
+        import inspect
+        from routes import search as search_routes
+        src = inspect.getsource(search_routes.search_user_data)
+        assert "websearch_to_tsquery('english', %s)" in src
+        assert 'ts_rank_cd' in src
+        assert 'ts_headline' in src
+        assert 'StartSel=«, StopSel=»' in src, (
+            'snippet markers changed — SPA and MCP clients render «» as '
+            'highlights')
+        assert 'ORDER BY rank DESC' in src
+
+    def test_soft_deleted_documents_excluded(self):
+        import inspect
+        from routes import search as search_routes
+        src = inspect.getsource(search_routes.search_user_data)
+        assert 'deleted_at IS NULL' in src, (
+            'soft-deleted documents leaked back into search results')
+
+
+class TestEnrichHits:
+    """_enrich_hits attaches document metadata, matched pages, and view
+    links; annotation hits gain the PARENT document_id (the MCP
+    next_actions bug fix — an annotation id must never be passed to
+    get_document)."""
+
+    def _cur(self, side_effects):
+        cur = MagicMock()
+        cur.fetchall.side_effect = side_effects
+        return cur
+
+    def test_document_hit_enriched(self):
+        from routes.search import _enrich_hits
+        results = [{'table': 'documents', 'id': 'd1', 'content': 'T',
+                    'snippet': '«match» text'}]
+        cur = self._cur([
+            [{'id': 'd1', 'title': 'Labs', 'filename': 'labs.pdf',
+              'mime_type': 'application/pdf', 'source': 'upload',
+              'lead_text': 'lead'}],
+            [{'document_id': 'd1', 'page_number': 2},
+             {'document_id': 'd1', 'page_number': 5}],
+        ])
+
+        _enrich_hits(cur, results, 'match', keyword_fts=True)
+
+        hit = results[0]
+        assert hit['title'] == 'Labs'
+        assert hit['filename'] == 'labs.pdf'
+        assert hit['mime_type'] == 'application/pdf'
+        assert hit['source'] == 'upload'
+        assert hit['snippet'] == '«match» text', 'FTS snippet must win over lead text'
+        assert hit['matched_pages'] == [2, 5]
+        assert hit['links'] == {
+            'web': '/?activity=documents&doc=d1',
+            'download': '/api/v1/documents/d1/download',
+        }
+
+    def test_snippet_falls_back_to_lead_text(self):
+        from routes.search import _enrich_hits
+        results = [{'table': 'documents', 'id': 'd1', 'content': 'T'}]
+        cur = self._cur([
+            [{'id': 'd1', 'title': 'Labs', 'filename': 'labs.pdf',
+              'mime_type': 'application/pdf', 'source': 'upload',
+              'lead_text': 'first 300 chars'}],
+        ])
+
+        _enrich_hits(cur, results, 'q', keyword_fts=False)
+
+        assert results[0]['snippet'] == 'first 300 chars'
+        assert results[0]['matched_pages'] == []
+        # keyword_fts=False → no page probe: meta query only
+        assert cur.execute.call_count == 1
+
+    def test_matched_pages_capped_at_five(self):
+        from routes.search import _enrich_hits
+        results = [{'table': 'documents', 'id': 'd1', 'content': 'T'}]
+        cur = self._cur([
+            [{'id': 'd1', 'title': 'T', 'filename': 'f', 'mime_type': 'x',
+              'source': 'upload', 'lead_text': ''}],
+            [{'document_id': 'd1', 'page_number': n} for n in range(1, 8)],
+        ])
+
+        _enrich_hits(cur, results, 'q', keyword_fts=True)
+
+        assert results[0]['matched_pages'] == [1, 2, 3, 4, 5]
+
+    def test_annotation_hit_gets_parent_document_id(self):
+        from routes.search import _enrich_hits
+        results = [{'table': 'document_annotations', 'id': 'a1',
+                    'content': 'note text'}]
+        cur = self._cur([
+            [{'id': 'a1', 'document_id': 'd9'}],
+        ])
+
+        _enrich_hits(cur, results, 'q', keyword_fts=False)
+
+        hit = results[0]
+        assert hit['document_id'] == 'd9'
+        assert hit['links']['web'] == '/?activity=documents&doc=d9'
+        assert hit['links']['download'] == '/api/v1/documents/d9/download'
 
 
 class TestSearchKeywordFallback:

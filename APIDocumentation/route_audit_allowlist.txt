@@ -42,6 +42,8 @@
 
 # ─── Documents + folders — multipart uploads ─────────────────────────────
 /api/v1/documents
+# chat-summaries: documented in UserAPI.md; openapi.yaml doesn't cover the documents surface yet
+/api/v1/documents/chat-summaries
 /api/v1/documents/upload
 /api/v1/documents/{doc_id}
 /api/v1/documents/{doc_id}/annotations

@@ -68,6 +68,13 @@ EMBEDDING_TABLES = {
         "timestamp_column": "created_at",
         "display_column": "body",
     },
+    "documents": {
+        "text_column": "ocr_text_full",
+        "embed_column": "embedding_content",
+        "content_builder": None,
+        "timestamp_column": "created_at",
+        "display_column": "title",
+    },
     # Tier 2: Dedup and smart matching
     "health_food_itemsv2": {
         "text_column": "name",

@@ -19,6 +19,7 @@ from typing import Any, Dict
 from mcp.types import Tool
 
 from tools._envelope import build_envelope
+from tools._links import absolutize_links
 from tools._shape import as_dict, as_list
 from tools._sources import fetch_sources
 
@@ -29,8 +30,10 @@ def schema() -> Tool:
     return Tool(
         name="get_document",
         description=(
-            "Return a document's metadata, OCR page text, and optional "
-            "annotations. Use after search_my_data surfaces a document hit."
+            "Return a document's metadata, OCR page text, optional "
+            "annotations, and `links` the user can open in a logged-in "
+            "browser (web view + download). Use after search_my_data "
+            "surfaces a document hit."
         ),
         inputSchema={
             "type": "object",
@@ -100,9 +103,11 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
             "id": doc.get("id") or doc_id,
             "title": doc.get("title"),
             "category": doc.get("category"),
+            "source": doc.get("source"),
             "created_at": doc.get("created_at"),
             "page_count": len(pages),
-            "filesize": doc.get("filesize") or doc.get("bytes"),
+            "filesize": doc.get("file_size_bytes"),
+            "links": absolutize_links(doc.get("links")),
         },
         "pages": pages,
         "annotations": annotations,

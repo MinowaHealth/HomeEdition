@@ -174,8 +174,20 @@
         };
 
         function App() {
-            const [activity, setActivity] = useState('logging');
-            const [view, setView] = useState('logging');
+            // Deep links (?activity=<key>&doc=<id>) — used by MCP-returned
+            // view links. Parsed once at mount; no URL routing beyond this.
+            const deepLink = React.useMemo(() => {
+                const params = new URLSearchParams(window.location.search);
+                const act = params.get('activity');
+                return {
+                    activity: act && activityConfig[act] ? act : null,
+                    doc: params.get('doc') || null,
+                };
+            }, []);
+
+            const [activity, setActivity] = useState(deepLink.activity || 'logging');
+            const [view, setView] = useState(deepLink.activity
+                ? activityConfig[deepLink.activity].defaultView : 'logging');
             const [sidebarOpen, setSidebarOpen] = useState(true);
             const [username, setUsername] = useState('');
 
@@ -272,7 +284,7 @@
                         {view === 'logging' && <LoggingManager />}
                         {view === 'observations' && <ObservationsManager />}
                         {view === 'feedback' && <FeedbackManager />}
-                        {view === 'documents' && <DocumentsManager />}
+                        {view === 'documents' && <DocumentsManager initialDocId={deepLink.doc} />}
                         {view === 'meals' && <MealsManager />}
                         {view === 'stacks' && <StacksManager />}
                         {view === 'food-items' && <FoodItemsManager />}
@@ -4988,7 +5000,7 @@
         }
 
         // ==================== DOCUMENTS MANAGER ====================
-        function DocumentsManager() {
+        function DocumentsManager({ initialDocId }) {
             // Folder state
             const [folders, setFolders] = useState([]);
             const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -5019,7 +5031,16 @@
             const [editingAnnBody, setEditingAnnBody] = useState('');
             const [submittingAnn, setSubmittingAnn] = useState(false);
 
+            // Search state (null results = search inactive, folder list shows)
+            const [searchQuery, setSearchQuery] = useState('');
+            const [searchMode, setSearchMode] = useState('auto');
+            const [searchResults, setSearchResults] = useState(null);
+            const [searchMeta, setSearchMeta] = useState(null);
+            const [searching, setSearching] = useState(false);
+
             useEffect(() => { fetchFolders(); }, [includeTrash]);
+            // Deep link from MCP view links: /?activity=documents&doc=<id>
+            useEffect(() => { if (initialDocId) fetchDocDetail(initialDocId); }, []);
             useEffect(() => {
                 if (currentFolderId) fetchDocuments();
                 else { setDocuments([]); setTotal(0); }
@@ -5103,6 +5124,47 @@
                 } catch (err) {
                     if (err.message !== 'Session expired') setError('Failed to load document details');
                 }
+            };
+
+            // ---------- Search handlers ----------
+            const runSearch = async () => {
+                const q = searchQuery.trim();
+                if (!q) return;
+                setSearching(true);
+                setError('');
+                try {
+                    const params = new URLSearchParams({ q, scope: 'documents', k: '25' });
+                    if (searchMode !== 'auto') params.set('mode', searchMode);
+                    const res = await apiFetch(`${API_BASE}/search?${params}`);
+                    const data = await res.json();
+                    if (res.ok) {
+                        setSearchResults(data.results || []);
+                        setSearchMeta(data);
+                    } else {
+                        setSearchResults([]);
+                        setSearchMeta(null);
+                        setError(data.error || 'Search failed');
+                    }
+                } catch (err) {
+                    if (err.message !== 'Session expired') setError('Search failed');
+                } finally {
+                    setSearching(false);
+                }
+            };
+
+            const clearSearch = () => {
+                setSearchQuery('');
+                setSearchResults(null);
+                setSearchMeta(null);
+            };
+
+            // ts_headline marks matches with «»; render them as highlight
+            // spans (plain-text markers — never dangerouslySetInnerHTML).
+            const renderSnippet = (text) => {
+                if (!text) return null;
+                return text.split(/[«»]/).map((part, i) => i % 2 === 1
+                    ? <mark key={i} style={{ background: 'rgba(102,126,234,0.35)', color: 'inherit', borderRadius: '2px', padding: '0 1px' }}>{part}</mark>
+                    : <span key={i}>{part}</span>);
             };
 
             // ---------- Folder handlers ----------
@@ -5559,6 +5621,45 @@
                         {currentFolder?.is_system ? 'System folder — cannot be renamed or trashed' : currentFolder ? 'User folder' : 'Select a folder'}
                     </div>
 
+                    {/* Document search — all folders, keyword (FTS) or semantic */}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
+                        <input value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') runSearch(); }}
+                            placeholder="Search all documents..."
+                            style={{
+                                flex: 1, minWidth: '200px', padding: '8px 12px', fontSize: '13px',
+                                background: 'var(--input-bg, #161622)', border: '1px solid var(--border, #444)',
+                                color: 'var(--text, #e0e0e0)', borderRadius: '6px'
+                            }} />
+                        <div style={{ display: 'flex', border: '1px solid var(--border, #444)', borderRadius: '6px', overflow: 'hidden' }}>
+                            {['auto', 'semantic', 'keyword'].map(m => (
+                                <button key={m} onClick={() => setSearchMode(m)}
+                                    style={{
+                                        padding: '7px 10px', fontSize: '11px', border: 'none', cursor: 'pointer',
+                                        textTransform: 'capitalize',
+                                        background: searchMode === m ? 'var(--accent, #667eea)' : 'var(--input-bg, #161622)',
+                                        color: searchMode === m ? '#fff' : 'var(--text-secondary, #aaa)'
+                                    }}>{m}</button>
+                            ))}
+                        </div>
+                        <button onClick={runSearch} disabled={searching || !searchQuery.trim()}
+                            style={{
+                                padding: '8px 16px', fontSize: '13px', fontWeight: 500,
+                                background: 'var(--accent, #667eea)', color: '#fff', border: 'none',
+                                borderRadius: '6px', cursor: searching ? 'wait' : 'pointer',
+                                opacity: searching || !searchQuery.trim() ? 0.6 : 1
+                            }}>{searching ? 'Searching...' : 'Search'}</button>
+                        {searchResults !== null && (
+                            <button onClick={clearSearch}
+                                style={{
+                                    padding: '8px 12px', fontSize: '13px',
+                                    background: 'none', border: '1px solid var(--border, #444)',
+                                    color: 'var(--text-secondary, #aaa)', borderRadius: '6px', cursor: 'pointer'
+                                }}>Clear</button>
+                        )}
+                    </div>
+
                     {/* Upload area */}
                     <div style={{
                         border: '2px dashed var(--border, #444)',
@@ -5838,7 +5939,64 @@
                         </div>
                     )}
 
+                    {/* Search results (replace folder doc list while active) */}
+                    {searchResults !== null && (
+                        <div>
+                            <div style={{ fontSize: '13px', color: 'var(--text-secondary, #aaa)', marginBottom: '8px' }}>
+                                {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for
+                                {' '}<strong>{searchMeta?.query}</strong>
+                                {' '}({searchMeta?.mode} search
+                                {searchMeta?.requested_mode === 'auto' && searchMeta?.mode === 'keyword' ? ' — semantic unavailable, fell back' : ''})
+                            </div>
+                            {searchResults.map(hit => {
+                                const isAnnotation = hit.table === 'document_annotations';
+                                const targetDocId = isAnnotation ? hit.document_id : hit.id;
+                                return (
+                                    <div key={`${hit.table}-${hit.id}`}
+                                        onClick={() => targetDocId && fetchDocDetail(targetDocId)}
+                                        style={{
+                                            border: '1px solid var(--border, #333)', borderRadius: '6px',
+                                            padding: '10px 14px', marginBottom: '8px',
+                                            background: 'var(--card-bg, #1e1e2e)',
+                                            cursor: targetDocId ? 'pointer' : 'default'
+                                        }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                            <strong style={{ fontSize: '13px' }}>
+                                                {hit.title || hit.filename || hit.content}
+                                            </strong>
+                                            {hit.source === 'chat_summary' && (
+                                                <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'rgba(102,126,234,0.25)', color: 'var(--accent, #8ea0ff)' }}>AI Session</span>
+                                            )}
+                                            {isAnnotation && (
+                                                <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'rgba(234,179,8,0.2)', color: '#eab308' }}>Annotation</span>
+                                            )}
+                                            <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'var(--input-bg, #161622)', border: '1px solid var(--border, #333)', color: 'var(--text-secondary, #aaa)' }}>
+                                                {hit.similarity != null ? `${Math.round(hit.similarity * 100)}% match` : 'keyword'}
+                                            </span>
+                                        </div>
+                                        {(hit.snippet || (isAnnotation && hit.content)) && (
+                                            <div style={{ fontSize: '12px', color: 'var(--text-secondary, #aaa)', marginTop: '6px', lineHeight: '1.4' }}>
+                                                {hit.snippet ? renderSnippet(hit.snippet) : hit.content}
+                                            </div>
+                                        )}
+                                        {hit.matched_pages && hit.matched_pages.length > 0 && (
+                                            <div style={{ fontSize: '11px', color: 'var(--text-secondary, #888)', marginTop: '4px' }}>
+                                                Matched pages: {hit.matched_pages.join(', ')}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {searchResults.length === 0 && (
+                                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary, #888)' }}>
+                                    No matches.
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Document list */}
+                    {searchResults === null && (<>
                     <div style={{ fontSize: '13px', color: 'var(--text-secondary, #aaa)', marginBottom: '8px' }}>
                         {total} document{total !== 1 ? 's' : ''} in this folder
                     </div>
@@ -5935,6 +6093,7 @@
                             )}
                         </tbody>
                     </table>
+                    </>)}
                     </div>
                 </div>
             );

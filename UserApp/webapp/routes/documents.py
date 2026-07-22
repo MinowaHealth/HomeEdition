@@ -52,6 +52,15 @@ def _is_allowed_mime(mime_type: str) -> bool:
     return any(mime_type.startswith(prefix) for prefix in ALLOWED_MIME_PREFIXES)
 
 
+def _doc_links(doc_id: str) -> dict:
+    """Session-gated view links. Relative paths — same-origin SPA uses them
+    directly; UserMCP absolutizes with APP_BASE_URL."""
+    return {
+        'web': f'/?activity=documents&doc={doc_id}',
+        'download': f'/api/v1/documents/{doc_id}/download',
+    }
+
+
 def _sha256_file(path: Path) -> str:
     """Stream-hash a file on disk; returns hex digest."""
     h = hashlib.sha256()
@@ -122,8 +131,15 @@ def upload_document():
 
     # Determine OCR status — text PDFs don't need OCR (Phase 2 will refine)
     ocr_status = 'pending'
+    text_content = None
     if mime_type == 'text/plain':
         ocr_status = 'not_needed'
+        # Text uploads skip the OCR pipeline entirely, so ocr_text_full (FTS)
+        # and the embedding are populated here instead of by the workers.
+        try:
+            text_content = file_path.read_text(encoding='utf-8', errors='replace')
+        except OSError as e:
+            current_app.logger.warning("text upload read failed for %s: %s", file_path, e)
 
     # Compute content hash on the saved bytes (integrity + dedup signal).
     try:
@@ -174,17 +190,24 @@ def upload_document():
         cur.execute("""
             INSERT INTO documents
                 (tenant_id, id, user_id, folder_id, filename, mime_type, file_size_bytes,
-                 file_path, sha256, source, ocr_status, title, category, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'upload', %s, %s, %s, %s, %s)
+                 file_path, sha256, source, ocr_status, ocr_text_full, title, category,
+                 created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'upload', %s, %s, %s, %s, %s, %s)
             RETURNING id, folder_id, filename, mime_type, file_size_bytes, sha256,
                       source, ocr_status, quality_label, title, category, tags, created_at
         """, (
             tenant_id, str(doc_id), str(user_id), folder_id, safe_name, mime_type, file_size,
-            str(file_path), sha256, ocr_status, title, category, now, now
+            str(file_path), sha256, ocr_status, text_content, title, category, now, now
         ))
 
         doc = cur.fetchone()
         conn.commit()
+
+        if text_content:
+            # Inline embedding (silent-fail) — same pattern as annotations.
+            embed_field(conn, tenant_id, str(doc_id), 'documents',
+                        'embedding_content', f"{title}\n\n{text_content}")
+
         cur.close()
         conn.close()
 
@@ -223,6 +246,156 @@ def upload_document():
             return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
         current_app.logger.error("Document upload DB insert failed: %s", e, exc_info=True)
         return jsonify({'error': 'Failed to save document record'}), 500
+
+
+# ==================== CHAT SUMMARIES ====================
+
+# Chat-session summaries are ordinary documents in the per-user
+# 'AI Sessions' system folder: markdown file on disk, FTS via the
+# ocr_text_full generated-tsvector path, inline embedding. Patient-authored
+# PHI — every create writes an audit_log row (HIPAA §164.312(b)).
+MAX_SUMMARY_CHARS = 256 * 1024
+AI_SESSIONS_FOLDER = 'AI Sessions'
+
+
+@bp.route('/documents/chat-summaries', methods=['POST'])
+@require_auth
+def create_chat_summary():
+    """Persist an AI chat-session summary into the user's document collection.
+
+    Body: title (required, ≤200 chars), summary_markdown (required, ≤256 KB),
+    optional model_id, source_tools (list of tool names), session_started_at
+    (ISO 8601). The document lands in the 'AI Sessions' system folder with
+    source='chat_summary' and provenance recorded.
+    """
+    import json as _json
+
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+
+    data = request.get_json(silent=True) or {}
+    title = (data.get('title') or '').strip()
+    summary = data.get('summary_markdown') or ''
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    if len(title) > 200:
+        return jsonify({'error': 'title must be 200 characters or fewer'}), 400
+    if not summary.strip():
+        return jsonify({'error': 'summary_markdown is required'}), 400
+    if len(summary) > MAX_SUMMARY_CHARS:
+        return jsonify({'error': f'summary_markdown must be {MAX_SUMMARY_CHARS} characters or fewer'}), 400
+
+    model_id = data.get('model_id')
+    source_tools = data.get('source_tools')
+    if source_tools is not None and (
+        not isinstance(source_tools, list)
+        or not all(isinstance(t, str) for t in source_tools)
+    ):
+        return jsonify({'error': 'source_tools must be a list of strings'}), 400
+    session_started_at = data.get('session_started_at')
+
+    doc_id = uuid.uuid4()
+    doc_dir = _doc_storage_dir(tenant_id, user_id, str(doc_id))
+    doc_dir.mkdir(parents=True, exist_ok=True)
+    file_path = doc_dir / 'original.md'
+    try:
+        file_path.write_text(summary, encoding='utf-8')
+        sha256 = _sha256_file(file_path)
+    except OSError as e:
+        current_app.logger.error("Chat summary save failed: %s", e, exc_info=True)
+        file_path.unlink(missing_ok=True)
+        return jsonify({'error': 'Failed to save summary file'}), 500
+
+    filename = (secure_filename(title) or 'chat-summary')[:120] + '.md'
+    provenance = {
+        'model_id': model_id,
+        'source_tools': source_tools or [],
+        'session_started_at': session_started_at,
+        'created_via': data.get('created_via') or 'api',
+    }
+    now = datetime.now(pytz.utc)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Resolve the AI Sessions system folder; self-heal for accounts that
+        # predate the 2026-07-15 delta (INSERT runs under the user's own RLS
+        # context, so WITH CHECK constrains it to the acting user).
+        cur.execute("""
+            SELECT id FROM document_folders
+            WHERE tenant_id = %s AND user_id = %s
+              AND is_system = TRUE AND name = %s AND deleted_at IS NULL
+            LIMIT 1
+        """, (tenant_id, str(user_id), AI_SESSIONS_FOLDER))
+        row = cur.fetchone()
+        if row:
+            folder_id = row['id']
+        else:
+            cur.execute("""
+                INSERT INTO document_folders (tenant_id, user_id, parent_id, name, is_system)
+                VALUES (%s, %s, NULL, %s, TRUE)
+                RETURNING id
+            """, (tenant_id, str(user_id), AI_SESSIONS_FOLDER))
+            folder_id = cur.fetchone()['id']
+
+        cur.execute("""
+            INSERT INTO documents
+                (tenant_id, id, user_id, folder_id, filename, mime_type, file_size_bytes,
+                 file_path, sha256, source, ocr_status, ocr_text_full, title, category,
+                 provenance, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, 'text/markdown', %s, %s, %s, 'chat_summary',
+                    'not_needed', %s, %s, 'ai_session', %s::jsonb, %s, %s)
+            RETURNING id, folder_id, filename, mime_type, file_size_bytes, sha256,
+                      source, ocr_status, title, category, created_at
+        """, (
+            tenant_id, str(doc_id), str(user_id), folder_id, filename,
+            file_path.stat().st_size, str(file_path), sha256, summary, title,
+            _json.dumps(provenance), now, now
+        ))
+        doc = cur.fetchone()
+
+        # HIPAA §164.312(b): audit row for the patient-authored PHI write.
+        cur.execute("""
+            INSERT INTO audit_log (tenant_id, user_id, action, target_type, target_id, details, ip_address)
+            VALUES (%s, %s, 'document.chat_summary_created', 'document', %s, %s::jsonb, %s)
+        """, (
+            tenant_id, str(user_id), str(doc_id),
+            _json.dumps({'created_via': provenance['created_via'], 'model_id': model_id}),
+            request.remote_addr,
+        ))
+
+        conn.commit()
+
+        # Inline embedding (silent-fail, post-commit) — annotations pattern.
+        embed_field(conn, tenant_id, str(doc_id), 'documents',
+                    'embedding_content', f"{title}\n\n{summary}")
+
+        cur.close()
+        conn.close()
+
+        doc['id'] = str(doc['id'])
+        doc['folder_id'] = str(doc['folder_id'])
+        doc['created_at'] = doc['created_at'].isoformat()
+        doc['links'] = _doc_links(doc['id'])
+
+        analytics.capture('chat_summary_saved', {'created_via': provenance['created_via']})
+        current_app.logger.info("Chat summary saved: id=%s user=%s chars=%d",
+                                doc_id, user_id, len(summary))
+        return jsonify(doc), 201
+
+    except Exception as e:
+        file_path.unlink(missing_ok=True)
+        if 'documents_source_check' in str(e):
+            # Delta not applied yet — surface a clear signal, not a raw 500.
+            current_app.logger.error("chat-summaries: schema not ready (source CHECK): %s", e)
+            return jsonify({'error': 'Server schema not ready for chat summaries',
+                            'code': 'SCHEMA_NOT_READY'}), 503
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill('/documents/chat-summaries', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("Chat summary create failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Failed to save chat summary'}), 500
 
 
 # ==================== LIST ====================
@@ -346,6 +519,7 @@ def get_document(doc_id):
             page['id'] = str(page['id'])
 
         doc['pages'] = pages
+        doc['links'] = _doc_links(doc['id'])
         return jsonify(doc)
 
     except Exception as e:

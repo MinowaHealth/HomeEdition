@@ -42,6 +42,7 @@ _TOOL_MODULES: Tuple[str, ...] = (
     # Search & documents
     "tools.search",
     "tools.documents",
+    "tools.chat_summary",
     # Engagement
     "tools.feedback",
 )

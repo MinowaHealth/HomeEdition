@@ -41,6 +41,7 @@ _SCOPES = {
         'health_conditions',
         'health_allergies',
         'health_food_itemsv2',
+        'documents',
         'document_annotations',
     ],
     'observations': ['health_observations'],
@@ -48,9 +49,82 @@ _SCOPES = {
     'conditions': ['health_conditions'],
     'allergies': ['health_allergies'],
     'food': ['health_food_itemsv2'],
-    'documents': ['document_annotations'],
+    'documents': ['documents', 'document_annotations'],
     'notes': ['health_observations'],
 }
+
+_MODES = ('auto', 'semantic', 'keyword')
+
+
+def _doc_links(doc_id: str) -> dict:
+    """Session-gated view links for a document. Relative paths — MCP
+    absolutizes with its APP_BASE_URL; the SPA is same-origin."""
+    return {
+        'web': f'/?activity=documents&doc={doc_id}',
+        'download': f'/api/v1/documents/{doc_id}/download',
+    }
+
+
+def _enrich_hits(cur, results: list, q: str, keyword_fts: bool) -> None:
+    """Attach document metadata + view links to document/annotation hits.
+
+    One batched query per table. Mutates `results` in place. RLS scopes
+    every read, so enrichment can never leak another user's metadata.
+    """
+    doc_ids = [r['id'] for r in results if r['table'] == 'documents']
+    ann_ids = [r['id'] for r in results if r['table'] == 'document_annotations']
+
+    if doc_ids:
+        cur.execute("""
+            SELECT id, title, filename, mime_type, source,
+                   left(coalesce(ocr_text_full, ''), 300) AS lead_text
+            FROM documents WHERE id = ANY(%s::uuid[])
+        """, (doc_ids,))
+        meta = {str(r['id']): r for r in cur.fetchall()}
+
+        matched_pages: dict = {}
+        if keyword_fts:
+            # Which pages matched? On-the-fly tsvector over this hit set's
+            # pages only — no page-level index needed.
+            cur.execute("""
+                SELECT document_id, page_number FROM document_pages
+                WHERE document_id = ANY(%s::uuid[])
+                  AND to_tsvector('english', coalesce(ocr_text, ''))
+                      @@ websearch_to_tsquery('english', %s)
+                ORDER BY document_id, page_number
+            """, (doc_ids, q))
+            for r in cur.fetchall():
+                pages = matched_pages.setdefault(str(r['document_id']), [])
+                if len(pages) < 5:
+                    pages.append(r['page_number'])
+
+        for hit in results:
+            if hit['table'] != 'documents':
+                continue
+            m = meta.get(hit['id'])
+            if m:
+                hit['title'] = m['title']
+                hit['filename'] = m['filename']
+                hit['mime_type'] = m['mime_type']
+                hit['source'] = m['source']
+                if not hit.get('snippet'):
+                    hit['snippet'] = m['lead_text']
+            hit['matched_pages'] = matched_pages.get(hit['id'], [])
+            hit['links'] = _doc_links(hit['id'])
+
+    if ann_ids:
+        cur.execute("""
+            SELECT id, document_id FROM document_annotations
+            WHERE id = ANY(%s::uuid[])
+        """, (ann_ids,))
+        ann_docs = {str(r['id']): str(r['document_id']) for r in cur.fetchall()}
+        for hit in results:
+            if hit['table'] != 'document_annotations':
+                continue
+            doc_id = ann_docs.get(hit['id'])
+            if doc_id:
+                hit['document_id'] = doc_id
+                hit['links'] = _doc_links(doc_id)
 
 
 @bp.route('/search', methods=['GET'])
@@ -60,12 +134,19 @@ def search_user_data():
 
     Query params:
         q       (required) search text
-        scope   (optional) one of: all, observations, inputs,
-                           conditions, allergies, food, documents, notes.
-                           Defaults to "all".
+        scope   (optional) one of: all, observations, inputs, conditions,
+                           allergies, food, documents, notes. Defaults to "all".
+        mode    (optional) auto (default; semantic with keyword fallback),
+                           semantic (503 if embeddings down), keyword
+                           (FTS/ILIKE only, no embedding call)
         k       (optional) top-K overall, 1..25, default 5
         from    (optional) YYYY-MM-DD — only return rows with timestamp >= from
         to      (optional) YYYY-MM-DD — only return rows with timestamp <= to
+
+    Document hits ('documents' / 'document_annotations' tables) are enriched
+    with title/filename/mime_type/source, a snippet (ts_headline «» markers
+    in keyword mode, leading text otherwise), matched_pages (keyword mode),
+    and session-gated view links {web, download}.
 
     Response:
         {
@@ -101,6 +182,13 @@ def search_user_data():
             'supported': sorted(_SCOPES.keys()),
         }), 400
 
+    req_mode = (request.args.get('mode') or 'auto').lower()
+    if req_mode not in _MODES:
+        return jsonify({
+            'error': f'unknown mode: {req_mode}',
+            'supported': list(_MODES),
+        }), 400
+
     try:
         k = int(request.args.get('k', 5))
     except (TypeError, ValueError):
@@ -128,13 +216,20 @@ def search_user_data():
     user_id = get_user_id()
     tenant_id = g.user.get('tenant_id', 1)
 
-    # Try semantic path first. If the embedding service is down, fall back
-    # to keyword — we still want usable results.
-    query_vec = get_embedding(q)
+    # Mode selection. auto = semantic with keyword fallback (historic
+    # behavior); semantic = hard requirement (503 if embeddings down);
+    # keyword = skip the embedding call entirely.
+    query_vec = None
+    if req_mode in ('auto', 'semantic'):
+        query_vec = get_embedding(q)
+        if query_vec and not validate_embedding_vector(query_vec, EMBEDDING_DIMENSIONS):
+            query_vec = None
+    if req_mode == 'semantic' and not query_vec:
+        return jsonify({
+            'error': 'Embedding service unavailable — retry with mode=keyword or mode=auto',
+            'code': 'EMBEDDING_UNAVAILABLE',
+        }), 503
     mode = 'semantic' if query_vec else 'keyword'
-    if query_vec and not validate_embedding_vector(query_vec, EMBEDDING_DIMENSIONS):
-        query_vec = None
-        mode = 'keyword'
 
     conn = get_user_db_connection()
     cur = conn.cursor()
@@ -163,6 +258,9 @@ def search_user_data():
             conditions = [sql.SQL("tenant_id = %s AND user_id = %s")]
             params: list = [tenant_id, user_id]
 
+            if table == 'documents':
+                # Soft-deleted docs stay out of search (list route does the same).
+                conditions.append(sql.SQL("deleted_at IS NULL"))
             if from_filter:
                 conditions.append(sql.SQL("{} >= %s").format(sql.Identifier(ts_col)))
                 params.append(from_filter)
@@ -209,6 +307,49 @@ def search_user_data():
                         'similarity': round(float(r['similarity']), 4) if r.get('similarity') is not None else None,
                         'mode': 'semantic',
                     })
+            elif table == 'documents' and table_has_column(conn, table, 'fts'):
+                # Keyword mode with real FTS: websearch syntax, rank ordering,
+                # ts_headline snippet with plain-text «» markers (no HTML —
+                # clients render the markers as highlights themselves).
+                where_sql = sql.SQL(" AND ").join(
+                    [sql.SQL("fts @@ websearch_to_tsquery('english', %s)")] + conditions
+                )
+                query_sql = sql.SQL(
+                    "SELECT id, {display} AS content, {ts} AS ts, "
+                    "ts_rank_cd(fts, websearch_to_tsquery('english', %s)) AS rank, "
+                    "ts_headline('english', left(coalesce(ocr_text_full, ''), 20000), "
+                    "  websearch_to_tsquery('english', %s), "
+                    "  'StartSel=«, StopSel=», MaxFragments=2, MaxWords=25') AS snippet "
+                    "FROM {table} "
+                    "WHERE {where} "
+                    "ORDER BY rank DESC "
+                    "LIMIT %s"
+                ).format(
+                    display=sql.Identifier(display_col),
+                    ts=sql.Identifier(ts_col),
+                    table=sql.Identifier(table),
+                    where=where_sql,
+                )
+                try:
+                    cur.execute(query_sql, [q, q, q] + params + [k])
+                    rows = cur.fetchall()
+                except Exception as exc:
+                    current_app.logger.warning(
+                        "search_fts_failed table=%s error=%s", table, exc,
+                    )
+                    rows = []
+
+                for r in rows:
+                    results.append({
+                        'table': table,
+                        'id': str(r['id']),
+                        'content': r['content'],
+                        'timestamp': r['ts'].isoformat() if hasattr(r.get('ts'), 'isoformat') else None,
+                        'similarity': None,
+                        'rank': round(float(r['rank']), 4) if r.get('rank') is not None else None,
+                        'snippet': r.get('snippet'),
+                        'mode': 'keyword',
+                    })
             else:
                 # Keyword fallback — ILIKE on the display column
                 like_cond = sql.SQL("{} ILIKE %s").format(sql.Identifier(display_col))
@@ -246,8 +387,8 @@ def search_user_data():
                         'mode': 'keyword',
                     })
 
-        # Rank: semantic hits by similarity desc first, keyword hits after
-        # (by timestamp desc). Semantic always wins tie-breaks.
+        # Rank: semantic hits by similarity desc first; keyword hits after,
+        # FTS-ranked hits by rank desc, then plain ILIKE hits by recency.
         semantic_hits = sorted(
             (r for r in results if r.get('similarity') is not None),
             key=lambda r: float(r['similarity']),
@@ -255,17 +396,21 @@ def search_user_data():
         )
         keyword_hits = sorted(
             (r for r in results if r.get('similarity') is None),
-            key=lambda r: r.get('timestamp') or '',
+            key=lambda r: (r.get('rank') or 0.0, r.get('timestamp') or ''),
             reverse=True,
         )
-        results = semantic_hits + keyword_hits
+        results = (semantic_hits + keyword_hits)[:k]
+
+        # Attach document metadata + view links to document/annotation hits.
+        _enrich_hits(cur, results, q, keyword_fts=(mode == 'keyword'))
 
         return jsonify({
             'query': q,
             'scope': scope,
             'mode': mode,
+            'requested_mode': req_mode,
             'applied': {'from': from_str, 'to': to_str},
-            'results': results[:k],
+            'results': results,
         })
 
     except Exception as e:

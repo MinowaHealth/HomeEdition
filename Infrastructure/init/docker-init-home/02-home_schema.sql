@@ -2067,17 +2067,21 @@ CREATE INDEX IF NOT EXISTS idx_document_folders_parent
     ON public.document_folders USING btree (tenant_id, parent_id)
     WHERE deleted_at IS NULL;
 
--- Trigger: auto-create Documents + Fax system folders for every new user.
+-- Trigger: auto-create the per-user system folders for every new user.
 -- Runs AFTER INSERT on users so FK (tenant_id, user_id) resolves.
 -- Uses SECURITY DEFINER so the folder seed runs with definer privileges
 -- (the user context is not yet established at signup time).
+-- 'AI Sessions' holds chat-session summaries; 'Episode Reports' holds
+-- immutable Episode Analysis HTML documents.
 CREATE OR REPLACE FUNCTION public.seed_user_system_folders()
 RETURNS TRIGGER AS $$
 BEGIN
     INSERT INTO public.document_folders (tenant_id, user_id, parent_id, name, is_system)
     VALUES
-        (NEW.tenant_id, NEW.id, NULL, 'Documents', TRUE),
-        (NEW.tenant_id, NEW.id, NULL, 'Fax',       TRUE);
+        (NEW.tenant_id, NEW.id, NULL, 'Documents',       TRUE),
+        (NEW.tenant_id, NEW.id, NULL, 'Fax',             TRUE),
+        (NEW.tenant_id, NEW.id, NULL, 'AI Sessions',     TRUE),
+        (NEW.tenant_id, NEW.id, NULL, 'Episode Reports', TRUE);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -2111,6 +2115,16 @@ CREATE TABLE IF NOT EXISTS public.documents (
     tags                JSONB DEFAULT '[]',
     embedding_content   vector(768),
     ocr_text_full       TEXT,
+    -- Doc-level FTS (not per-page) so text/markdown docs with no
+    -- document_pages rows are searchable; left() cap keeps the tsvector
+    -- under per-row limits for 5MB text docs.
+    fts                 tsvector GENERATED ALWAYS AS (
+                            to_tsvector('english',
+                                left(coalesce(title, '') || ' ' || coalesce(ocr_text_full, ''), 500000))
+                        ) STORED,
+    -- Populated for AI-written documents (chat summaries, episode reports):
+    -- {model_id, source_tools, session_started_at, created_via, ...}
+    provenance          JSONB,
     storage_tier        TEXT NOT NULL DEFAULT 'local',
     remote_bucket       TEXT,
     remote_key          TEXT,
@@ -2124,7 +2138,8 @@ CREATE TABLE IF NOT EXISTS public.documents (
     FOREIGN KEY (tenant_id, user_id) REFERENCES public.users(tenant_id, id) ON DELETE CASCADE,
     FOREIGN KEY (tenant_id, folder_id) REFERENCES public.document_folders(tenant_id, id) ON DELETE RESTRICT,
 
-    CONSTRAINT documents_source_check CHECK (source IN ('upload', 'fax_inbound', 'email', 'provider_send')),
+    CONSTRAINT documents_source_check CHECK (source IN ('upload', 'fax_inbound', 'email', 'provider_send',
+                                                        'chat_summary', 'episode_report')),
     CONSTRAINT documents_ocr_status_check CHECK (ocr_status IN ('pending', 'processing', 'complete', 'failed', 'not_needed')),
     CONSTRAINT documents_quality_label_check CHECK (quality_label IN ('green', 'yellow', 'red', 'unknown')),
     CONSTRAINT documents_storage_tier_check CHECK (storage_tier IN ('local', 'remote', 'both')),
@@ -2133,6 +2148,10 @@ CREATE TABLE IF NOT EXISTS public.documents (
 
 CREATE INDEX IF NOT EXISTS idx_documents_folder
     ON public.documents USING btree (tenant_id, folder_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_fts
+    ON public.documents USING gin (fts)
     WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_documents_tenant_user

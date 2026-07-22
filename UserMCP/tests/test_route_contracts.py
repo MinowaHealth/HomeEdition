@@ -25,7 +25,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools import activity, adherence, labs, search
+from tools import activity, adherence, chat_summary, labs, search
 
 # ---------------------------------------------------------------------------
 # The contract table — keep byte-identical with the twin file.
@@ -42,7 +42,7 @@ CONTRACT = {
         },
         "search_my_data": {
             "path": "/search",
-            "sends": {"q": "q", "scope": "scope", "k": "k",
+            "sends": {"q": "q", "scope": "scope", "k": "k", "mode": "mode",
                       "from": "from", "to": "to"},
             "route_reads_dates_via": "request.args",
             "route_must_not_read": ["start_date", "end_date"],
@@ -60,6 +60,13 @@ CONTRACT = {
             "route_reads_dates_via": None,
             "route_must_not_read": [],
         },
+        "save_chat_summary": {
+            "path": "/documents/chat-summaries",
+            "sends_json": ["title", "summary_markdown", "created_via",
+                           "model_id", "source_tools", "session_started_at"],
+            "route_reads_dates_via": None,
+            "route_must_not_read": [],
+        },
     },
     "kind": {
         "mcp_enum": ["all", "medication", "food", "observation", "sync"],
@@ -67,9 +74,10 @@ CONTRACT = {
     },
     "scopes": ["all", "allergies", "conditions",
                "documents", "food", "inputs", "notes", "observations"],
+    "modes": ["auto", "semantic", "keyword"],
 }
 
-CONTRACT_SHA256 = "493b85dc481e936c8aba459cd91a34fd316779370a9e9ae3932f339b1da47687"
+CONTRACT_SHA256 = "60a063bec93b376132527b114e2a80bd4a2ab7c5002c17300f4603d92560d43b"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -106,6 +114,7 @@ def _capturing_client(path: str, response):
         if p == path:
             captured["called"] = True
             captured["params"] = kwargs.get("params")
+            captured["json"] = kwargs.get("json")
             return response
         if p in _SOURCE_STUBS:
             return _SOURCE_STUBS[p]
@@ -169,7 +178,7 @@ async def test_search_sends_contract_params():
         spec["path"], {"results": [], "mode": "semantic"})
 
     await search.handle({
-        "q": "Allegra", "scope": "observations", "k": 10,
+        "q": "Allegra", "scope": "observations", "k": 10, "mode": "keyword",
         "from": "2026-05-01", "to": "2026-05-31",
     }, client)
 
@@ -178,8 +187,22 @@ async def test_search_sends_contract_params():
     assert params["q"] == "Allegra"
     assert params["scope"] == "observations"
     assert params["k"] == 10
+    assert params["mode"] == "keyword"
     assert params["from"] == "2026-05-01"
     assert params["to"] == "2026-05-31"
+
+
+@pytest.mark.asyncio
+async def test_search_auto_mode_not_sent():
+    """mode=auto is the route default — sending it is noise; omitting it
+    keeps old-route compatibility during rollout."""
+    spec = CONTRACT["tools"]["search_my_data"]
+    client, captured = _capturing_client(
+        spec["path"], {"results": [], "mode": "semantic"})
+
+    await search.handle({"q": "Allegra"}, client)
+
+    assert "mode" not in captured["params"]
 
 
 # ---------------------------------------------------------------------------
@@ -226,8 +249,38 @@ async def test_labs_sends_no_params():
 
 
 # ---------------------------------------------------------------------------
+# save_chat_summary → POST /documents/chat-summaries
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_chat_summary_sends_contract_body():
+    spec = CONTRACT["tools"]["save_chat_summary"]
+    client, captured = _capturing_client(
+        spec["path"], {"id": "d1", "title": "T", "created_at": "2026-07-15",
+                       "links": {"web": "/x", "download": "/y"}})
+
+    await chat_summary.handle({
+        "title": "Lab review", "summary_markdown": "# Notes",
+        "model_id": "claude-x", "source_tools": ["search_my_data"],
+        "session_started_at": "2026-07-15T10:00:00Z",
+    }, client)
+
+    assert captured["called"]
+    body = captured["json"]
+    assert set(body) == set(spec["sends_json"])
+    assert body["title"] == "Lab review"
+    assert body["summary_markdown"] == "# Notes"
+    assert body["created_via"] == "usermcp"
+
+
+# ---------------------------------------------------------------------------
 # Enum drift guards
 # ---------------------------------------------------------------------------
+
+def test_search_mode_enum_matches_contract():
+    props = search.schema().inputSchema["properties"]
+    assert props["mode"]["enum"] == CONTRACT["modes"]
+
 
 def test_activity_kind_enum_matches_contract():
     props = activity.schema().inputSchema["properties"]

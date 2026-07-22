@@ -712,7 +712,8 @@ async def test_search_suggests_document_follow_up():
     client = _make_client({
         "/search": {
             "mode": "semantic",
-            "results": [{"table": "document_annotations", "id": "doc-42", "text": "Lab panel"}],
+            "results": [{"table": "document_annotations", "id": "ann-7",
+                         "document_id": "doc-42", "text": "Lab panel"}],
         },
     })
 
@@ -721,6 +722,7 @@ async def test_search_suggests_document_follow_up():
     assert env["next_actions"]
     action = env["next_actions"][0]
     assert action["tool"] == "get_document"
+    # The parent document id, not the annotation id (bug fixed 2026-07-15).
     assert action["args"]["document_id"] == "doc-42"
 
 

@@ -15,6 +15,7 @@ from typing import Any, Dict
 from mcp.types import Tool
 
 from tools._envelope import build_envelope
+from tools._links import absolutize_links
 from tools._shape import as_dict
 from tools._sources import fetch_sources
 
@@ -31,12 +32,14 @@ def schema() -> Tool:
     return Tool(
         name="search_my_data",
         description=(
-            "Semantic-first search across the user's own records: "
-            "observations, medications/supplements, "
-            "conditions, allergies, food items, and document annotations. "
-            "If the embedding service is unavailable the endpoint falls "
-            "back to keyword search and `coverage.mode` reports which path "
-            "was used."
+            "Search the user's own records: observations, "
+            "medications/supplements, conditions, allergies, food items, "
+            "documents (full text, including saved AI session summaries), "
+            "and document annotations. mode=auto (default) is semantic with "
+            "keyword fallback; mode=keyword forces full-text search; "
+            "mode=semantic requires the embedding service. Document hits "
+            "carry `links` the user can open in a logged-in browser. "
+            "`coverage.mode` reports which path answered."
         ),
         inputSchema={
             "type": "object",
@@ -49,6 +52,13 @@ def schema() -> Tool:
                     "default": "all",
                 },
                 "k": {"type": "integer", "default": 5, "description": "Top-K (1..25)"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "semantic", "keyword"],
+                    "default": "auto",
+                    "description": "auto = semantic with keyword fallback; "
+                                   "keyword = full-text only; semantic = embeddings required",
+                },
                 "from": {"type": "string", "description": "YYYY-MM-DD lower bound"},
                 "to": {"type": "string", "description": "YYYY-MM-DD upper bound"},
             },
@@ -74,6 +84,9 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
         scope = "all"
 
     params: Dict[str, Any] = {"q": q, "scope": scope}
+    mode_arg = (arguments.get("mode") or "auto").lower()
+    if mode_arg in ("semantic", "keyword"):
+        params["mode"] = mode_arg
     if arguments.get("k"):
         params["k"] = int(arguments["k"])
     if arguments.get("from"):
@@ -99,15 +112,19 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
     results = resp_d.get("results") or []
     mode = resp_d.get("mode") or "unknown"
 
+    for r in results:
+        if isinstance(r, dict) and r.get("links"):
+            r["links"] = absolutize_links(r["links"])
+
     # Represented source buckets: everything in the search endpoint is
     # manually-entered (observations, inputs, notes, allergies) rather
     # than wearable-sourced, so the envelope always reports `manual`.
     gaps = []
     if not results:
         gaps.append({"reason": f"no matches for '{q}' in scope '{scope}'"})
-    if mode == "keyword":
+    if mode == "keyword" and mode_arg != "keyword":
         gaps.append({
-            "reason": "semantic search unavailable — keyword-only results (exact-phrase match)"
+            "reason": "semantic search unavailable — keyword-only results"
         })
 
     coverage = {
@@ -121,13 +138,22 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
     }
 
     next_actions = []
-    # If the top hit is a document annotation, suggest fetching the full doc.
-    if results and results[0].get("table") == "document_annotations":
-        next_actions.append({
-            "tool": "get_document",
-            "args": {"document_id": results[0].get("id")},
-            "why": "Top match is a document annotation — pull the full document for context.",
-        })
+    # If the top hit is a document (or an annotation on one), suggest
+    # fetching the full document. Annotations carry the parent document_id.
+    if results:
+        top = results[0]
+        if top.get("table") == "documents":
+            next_actions.append({
+                "tool": "get_document",
+                "args": {"document_id": top.get("id")},
+                "why": "Top match is a document — pull the full text and pages.",
+            })
+        elif top.get("table") == "document_annotations" and top.get("document_id"):
+            next_actions.append({
+                "tool": "get_document",
+                "args": {"document_id": top.get("document_id")},
+                "why": "Top match is a document annotation — pull the full document for context.",
+            })
 
     sources = await fetch_sources(client)
     return build_envelope(results, coverage=coverage, sources=sources, next_actions=next_actions)

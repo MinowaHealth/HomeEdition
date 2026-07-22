@@ -38,7 +38,7 @@ CONTRACT = {
         },
         "search_my_data": {
             "path": "/search",
-            "sends": {"q": "q", "scope": "scope", "k": "k",
+            "sends": {"q": "q", "scope": "scope", "k": "k", "mode": "mode",
                       "from": "from", "to": "to"},
             "route_reads_dates_via": "request.args",
             "route_must_not_read": ["start_date", "end_date"],
@@ -56,6 +56,13 @@ CONTRACT = {
             "route_reads_dates_via": None,
             "route_must_not_read": [],
         },
+        "save_chat_summary": {
+            "path": "/documents/chat-summaries",
+            "sends_json": ["title", "summary_markdown", "created_via",
+                           "model_id", "source_tools", "session_started_at"],
+            "route_reads_dates_via": None,
+            "route_must_not_read": [],
+        },
     },
     "kind": {
         "mcp_enum": ["all", "medication", "food", "observation", "sync"],
@@ -63,9 +70,10 @@ CONTRACT = {
     },
     "scopes": ["all", "allergies", "conditions",
                "documents", "food", "inputs", "notes", "observations"],
+    "modes": ["auto", "semantic", "keyword"],
 }
 
-CONTRACT_SHA256 = "493b85dc481e936c8aba459cd91a34fd316779370a9e9ae3932f339b1da47687"
+CONTRACT_SHA256 = "60a063bec93b376132527b114e2a80bd4a2ab7c5002c17300f4603d92560d43b"
 
 
 def test_contract_hash_pinned():
@@ -107,10 +115,19 @@ class TestRouteReadsContractParams:
 
     def test_search_reads_contract_params(self):
         src = inspect.getsource(search_routes.search_user_data)
-        for param in ("q", "scope", "from", "to"):
+        for param in ("q", "scope", "mode", "from", "to"):
             assert f"request.args.get('{param}'" in src
         for bad in CONTRACT["tools"]["search_my_data"]["route_must_not_read"]:
             assert f"request.args.get('{bad}')" not in src
+
+    def test_chat_summary_route_reads_contract_body(self):
+        from routes import documents as documents_routes
+        src = inspect.getsource(documents_routes.create_chat_summary)
+        for key in CONTRACT["tools"]["save_chat_summary"]["sends_json"]:
+            assert f"data.get('{key}')" in src, (
+                f"create_chat_summary stopped reading '{key}' — the MCP "
+                "save_chat_summary tool sends exactly that body key"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +136,10 @@ class TestRouteReadsContractParams:
 
 def test_search_scopes_match_contract():
     assert set(search_routes._SCOPES.keys()) == set(CONTRACT["scopes"])
+
+
+def test_search_modes_match_contract():
+    assert list(search_routes._MODES) == CONTRACT["modes"]
 
 
 class TestKindContractBehavior:
