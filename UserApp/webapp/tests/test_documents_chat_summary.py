@@ -106,6 +106,7 @@ class TestChatSummaryCreate:
         assert doc['category'] == 'ai_session'
         assert doc['links'] == {
             'web': f"/?activity=documents&doc={doc['id']}",
+            'view': f"/api/v1/documents/{doc['id']}/view",
             'download': f"/api/v1/documents/{doc['id']}/download",
         }
         # Inline embedding over title + body (silent-fail contract).

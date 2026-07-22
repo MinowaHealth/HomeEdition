@@ -19,6 +19,7 @@ from utils import (
     require_auth,
     get_db_connection,
     get_user_id,
+    local_to_utc,
     parse_pagination_params,
     paginated_response,
 )
@@ -57,6 +58,7 @@ def _doc_links(doc_id: str) -> dict:
     directly; UserMCP absolutizes with APP_BASE_URL."""
     return {
         'web': f'/?activity=documents&doc={doc_id}',
+        'view': f'/api/v1/documents/{doc_id}/view',
         'download': f'/api/v1/documents/{doc_id}/download',
     }
 
@@ -396,6 +398,351 @@ def create_chat_summary():
             return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
         current_app.logger.error("Chat summary create failed: %s", e, exc_info=True)
         return jsonify({'error': 'Failed to save chat summary'}), 500
+
+
+# 'Episode Reports' system folder: single-page HTML artifact on disk,
+# searchable narrative text in ocr_text_full (drives fts + embedding),
+# episode window/version/annotations in provenance JSONB.
+# Plan: APIDocumentation/EpisodeReports-Plan1.md
+MAX_REPORT_HTML_CHARS = 2 * 1024 * 1024
+MAX_NARRATIVE_CHARS = 256 * 1024
+EPISODE_REPORTS_FOLDER = 'Episode Reports'
+
+
+def _parse_episode_instant(value):
+    """App-convention timestamp parse → UTC ISO string, or None if invalid."""
+    try:
+        return local_to_utc(value).isoformat()
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+@bp.route('/documents/episode-reports', methods=['POST'])
+@require_auth
+def create_episode_report():
+    """Persist an Episode Analysis report into the user's document collection.
+
+    Body: title (required, ≤200), report_html (required, ≤2 MB — the
+    self-contained single-page artifact), narrative_text (required, ≤256 KB —
+    lead + narrative + observations + caveats as plain text; drives FTS and
+    the embedding), episode_start / episode_end (required, ISO 8601, the
+    unpadded analyzed window), version (int ≥1, default 1),
+    supersedes_document_id (optional — prior version being replaced; must be
+    the caller's own episode_report document), annotations (optional object:
+    spans/events/caveats/discarded_readings), model_id, source_tools,
+    created_via.
+
+    Reports are immutable: re-analysis creates a new document that supersedes
+    the old one. The write path only touches the caller's own collection
+    (explicit tenant_id/user_id on every statement — no RLS on this box);
+    audit row per create (action='document.episode_report_created').
+    """
+    import json as _json
+
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+
+    data = request.get_json(silent=True) or {}
+    title = (data.get('title') or '').strip()
+    report_html = data.get('report_html') or ''
+    narrative = data.get('narrative_text') or ''
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    if len(title) > 200:
+        return jsonify({'error': 'title must be 200 characters or fewer'}), 400
+    if not report_html.strip():
+        return jsonify({'error': 'report_html is required'}), 400
+    if len(report_html) > MAX_REPORT_HTML_CHARS:
+        return jsonify({'error': f'report_html must be {MAX_REPORT_HTML_CHARS} characters or fewer'}), 400
+    if not narrative.strip():
+        return jsonify({'error': 'narrative_text is required'}), 400
+    if len(narrative) > MAX_NARRATIVE_CHARS:
+        return jsonify({'error': f'narrative_text must be {MAX_NARRATIVE_CHARS} characters or fewer'}), 400
+
+    episode_start = _parse_episode_instant(data.get('episode_start'))
+    episode_end = _parse_episode_instant(data.get('episode_end'))
+    if not episode_start or not episode_end:
+        return jsonify({'error': 'episode_start and episode_end (ISO 8601) are required'}), 400
+    if episode_end <= episode_start:
+        return jsonify({'error': 'episode_end must be after episode_start'}), 400
+
+    version = data.get('version', 1)
+    if not isinstance(version, int) or version < 1:
+        return jsonify({'error': 'version must be a positive integer'}), 400
+
+    supersedes = data.get('supersedes_document_id')
+    if supersedes is not None:
+        try:
+            supersedes = str(uuid.UUID(str(supersedes)))
+        except ValueError:
+            return jsonify({'error': 'supersedes_document_id must be a UUID'}), 400
+
+    annotations = data.get('annotations')
+    if annotations is not None and not isinstance(annotations, dict):
+        return jsonify({'error': 'annotations must be an object'}), 400
+
+    source_tools = data.get('source_tools')
+    if source_tools is not None and (
+        not isinstance(source_tools, list)
+        or not all(isinstance(t, str) for t in source_tools)
+    ):
+        return jsonify({'error': 'source_tools must be a list of strings'}), 400
+
+    doc_id = uuid.uuid4()
+    doc_dir = _doc_storage_dir(tenant_id, user_id, str(doc_id))
+    doc_dir.mkdir(parents=True, exist_ok=True)
+    file_path = doc_dir / 'original.html'
+    try:
+        file_path.write_text(report_html, encoding='utf-8')
+        sha256 = _sha256_file(file_path)
+    except OSError as e:
+        current_app.logger.error("Episode report save failed: %s", e, exc_info=True)
+        file_path.unlink(missing_ok=True)
+        return jsonify({'error': 'Failed to save report file'}), 500
+
+    filename = (secure_filename(title) or 'episode-report')[:120] + '.html'
+    provenance = {
+        'episode_start': episode_start,
+        'episode_end': episode_end,
+        'version': version,
+        'supersedes_document_id': supersedes,
+        'annotations': annotations or {},
+        'model_id': data.get('model_id'),
+        'source_tools': source_tools or [],
+        'created_via': data.get('created_via') or 'api',
+    }
+    now = datetime.now(pytz.utc)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Supersedes must reference the caller's own live episode report
+        # (explicit user_id scoping — no RLS on this box).
+        if supersedes:
+            cur.execute("""
+                SELECT 1 FROM documents
+                WHERE tenant_id = %s AND user_id = %s AND id = %s
+                  AND source = 'episode_report' AND deleted_at IS NULL
+            """, (tenant_id, str(user_id), supersedes))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                file_path.unlink(missing_ok=True)
+                return jsonify({'error': 'supersedes_document_id does not reference one of your episode reports'}), 400
+
+        # Resolve the Episode Reports system folder; self-heal for accounts
+        # that predate the 2026-07-20 delta.
+        cur.execute("""
+            SELECT id FROM document_folders
+            WHERE tenant_id = %s AND user_id = %s
+              AND is_system = TRUE AND name = %s AND deleted_at IS NULL
+            LIMIT 1
+        """, (tenant_id, str(user_id), EPISODE_REPORTS_FOLDER))
+        row = cur.fetchone()
+        if row:
+            folder_id = row['id']
+        else:
+            cur.execute("""
+                INSERT INTO document_folders (tenant_id, user_id, parent_id, name, is_system)
+                VALUES (%s, %s, NULL, %s, TRUE)
+                RETURNING id
+            """, (tenant_id, str(user_id), EPISODE_REPORTS_FOLDER))
+            folder_id = cur.fetchone()['id']
+
+        cur.execute("""
+            INSERT INTO documents
+                (tenant_id, id, user_id, folder_id, filename, mime_type, file_size_bytes,
+                 file_path, sha256, source, ocr_status, ocr_text_full, title, category,
+                 provenance, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, 'text/html', %s, %s, %s, 'episode_report',
+                    'not_needed', %s, %s, 'episode_report', %s::jsonb, %s, %s)
+            RETURNING id, folder_id, filename, mime_type, file_size_bytes, sha256,
+                      source, ocr_status, title, category, created_at
+        """, (
+            tenant_id, str(doc_id), str(user_id), folder_id, filename,
+            file_path.stat().st_size, str(file_path), sha256, narrative, title,
+            _json.dumps(provenance), now, now
+        ))
+        doc = cur.fetchone()
+
+        # HIPAA §164.312(b): audit row for the patient-authored PHI write.
+        cur.execute("""
+            INSERT INTO audit_log (tenant_id, user_id, action, target_type, target_id, details, ip_address)
+            VALUES (%s, %s, 'document.episode_report_created', 'document', %s, %s::jsonb, %s)
+        """, (
+            tenant_id, str(user_id), str(doc_id),
+            _json.dumps({'created_via': provenance['created_via'],
+                         'model_id': provenance['model_id'],
+                         'episode_start': episode_start,
+                         'episode_end': episode_end,
+                         'version': version}),
+            request.remote_addr,
+        ))
+
+        conn.commit()
+
+        # Inline embedding (silent-fail, post-commit) — chat-summary pattern.
+        embed_field(conn, tenant_id, str(doc_id), 'documents',
+                    'embedding_content', f"{title}\n\n{narrative}")
+
+        cur.close()
+        conn.close()
+
+        doc['id'] = str(doc['id'])
+        doc['folder_id'] = str(doc['folder_id'])
+        doc['created_at'] = doc['created_at'].isoformat()
+        doc['episode_start'] = episode_start
+        doc['episode_end'] = episode_end
+        doc['version'] = version
+        doc['links'] = _doc_links(doc['id'])
+
+        analytics.capture('episode_report_saved', {'created_via': provenance['created_via'], 'version': version})
+        current_app.logger.info("Episode report saved: id=%s user=%s window=%s..%s v%d",
+                                doc_id, user_id, episode_start, episode_end, version)
+        return jsonify(doc), 201
+
+    except Exception as e:
+        file_path.unlink(missing_ok=True)
+        if 'documents_source_check' in str(e):
+            current_app.logger.error("episode-reports: schema not ready (source CHECK): %s", e)
+            return jsonify({'error': 'Server schema not ready for episode reports',
+                            'code': 'SCHEMA_NOT_READY'}), 503
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill('/documents/episode-reports', str(user_id))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("Episode report create failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Failed to save episode report'}), 500
+
+
+@bp.route('/documents/episode-reports', methods=['GET'])
+@require_auth
+def list_episode_reports():
+    """List the user's episode reports — envelope metadata only, never HTML.
+
+    Query params: from / to (ISO 8601; returns reports whose analyzed window
+    OVERLAPS [from, to]), latest_only (default true — hide reports superseded
+    by a newer live version), limit / offset.
+
+    Minimum-Necessary (§164.502(b)): envelope only; the report body travels
+    only on explicit single-document fetch/view/download.
+    """
+    limit, offset = parse_pagination_params()
+    latest_only = (request.args.get('latest_only') or 'true').lower() != 'false'
+
+    from_raw = request.args.get('from')
+    to_raw = request.args.get('to')
+    from_utc = _parse_episode_instant(from_raw) if from_raw else None
+    to_utc = _parse_episode_instant(to_raw) if to_raw else None
+    if (from_raw and not from_utc) or (to_raw and not to_utc):
+        return jsonify({'error': 'Invalid from/to timestamp; use ISO 8601'}), 400
+
+    conditions = [sql.SQL("d.tenant_id = %s"), sql.SQL("d.user_id = %s"),
+                  sql.SQL("d.source = 'episode_report'"), sql.SQL("d.deleted_at IS NULL")]
+    params: list = [g.user.get('tenant_id', 1), str(get_user_id())]
+    # ISO-8601 UTC strings compare correctly as text — overlap test on the
+    # provenance window without dedicated columns.
+    if to_utc:
+        conditions.append(sql.SQL("d.provenance->>'episode_start' < %s"))
+        params.append(to_utc)
+    if from_utc:
+        conditions.append(sql.SQL("d.provenance->>'episode_end' > %s"))
+        params.append(from_utc)
+    if latest_only:
+        conditions.append(sql.SQL("""NOT EXISTS (
+            SELECT 1 FROM documents d2
+            WHERE d2.tenant_id = d.tenant_id AND d2.user_id = d.user_id
+              AND d2.source = 'episode_report' AND d2.deleted_at IS NULL
+              AND d2.provenance->>'supersedes_document_id' = d.id::text
+        )"""))
+
+    query = sql.SQL("""
+        SELECT count(*) OVER() AS _total,
+               d.id, d.title, d.created_at,
+               d.provenance->>'episode_start' AS episode_start,
+               d.provenance->>'episode_end' AS episode_end,
+               (d.provenance->>'version')::int AS version,
+               d.provenance->>'supersedes_document_id' AS supersedes_document_id
+        FROM documents d
+        WHERE {conditions}
+        ORDER BY d.provenance->>'episode_start' DESC
+        LIMIT %s OFFSET %s
+    """).format(conditions=sql.SQL(" AND ").join(conditions))
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(query, params + [limit, offset])
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill('/documents/episode-reports', str(get_user_id()))
+            return jsonify({'error': 'Query timeout', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("GET /documents/episode-reports failed: %s", e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+    total = rows[0]['_total'] if rows else 0
+    for r in rows:
+        r.pop('_total', None)
+        r['id'] = str(r['id'])
+        r['created_at'] = r['created_at'].isoformat()
+        r['links'] = _doc_links(r['id'])
+
+    return jsonify(paginated_response(rows, total, limit, offset, key='reports'))
+
+
+@bp.route('/documents/<doc_id>/view', methods=['GET'])
+@require_auth
+def view_document(doc_id):
+    """Serve the document inline (browser-rendered), local storage only.
+
+    text/html documents (episode reports) are LLM-session-generated user
+    content — so HTML is served with a sandboxing CSP (opaque origin:
+    scripts such as Chart.js run, but no cookies and no same-origin reads).
+    Without it this is a stored-XSS path from generated content into the
+    viewer's browser session. Remote-tier documents fall back to the
+    download route's presign flow.
+    """
+    tenant_id = g.user.get('tenant_id', 1)
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT file_path, filename, mime_type, storage_tier
+            FROM documents
+            WHERE tenant_id = %s AND user_id = %s AND id = %s
+              AND deleted_at IS NULL
+        """, (tenant_id, str(get_user_id()), doc_id,))
+        doc = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not doc:
+            return jsonify({'error': 'Document not found'}), 404
+
+        if doc.get('storage_tier', 'local') not in ('local', 'both') or not doc['file_path']:
+            return redirect(f'/api/v1/documents/{doc_id}/download', code=302)
+        file_path = Path(doc['file_path'])
+        if not file_path.exists():
+            return jsonify({'error': 'Document file not available'}), 404
+
+        resp = send_file(
+            str(file_path),
+            mimetype=doc['mime_type'],
+            as_attachment=False,
+            download_name=doc['filename'],
+        )
+        if (doc['mime_type'] or '').startswith('text/html'):
+            resp.headers['Content-Security-Policy'] = 'sandbox allow-scripts'
+            resp.headers['X-Content-Type-Options'] = 'nosniff'
+        return resp
+
+    except Exception as e:
+        current_app.logger.error("GET /documents/%s/view failed: %s", doc_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 # ==================== LIST ====================

@@ -44,6 +44,9 @@
 /api/v1/documents
 # chat-summaries: documented in UserAPI.md; openapi.yaml doesn't cover the documents surface yet
 /api/v1/documents/chat-summaries
+# episode-reports: new 2026-07-20 (EpisodeReports-Plan1.md); documented in UserAPI.md
+/api/v1/documents/episode-reports
+/api/v1/documents/{doc_id}/view
 
 # acquisitions: new 2026-07-16 (StacksMCP-AcquisitionLog-Plan1.md); shape
 # still settling — documented in UserAPI.md, declare in spec once stable

@@ -2210,6 +2210,107 @@ UserMCP `save_chat_summary` tool.
 - 503 `{"code": "SCHEMA_NOT_READY"}`: the 2026-07-15 schema delta has not
   been applied yet (deploy-order guard)
 
+### POST /api/v1/documents/episode-reports
+
+*Added 2026-07-20.* Persist an Episode Analysis report (single-page HTML from
+the health-episode-report Desktop skill) into the user's document collection.
+The report becomes an immutable document (`source='episode_report'`,
+`mime_type='text/html'`, `category='episode_report'`) in the per-user
+**'Episode Reports'** system folder. The `narrative_text` lands in
+`ocr_text_full`, so reports are full-text and semantically searchable via
+`GET /api/v1/search`; the HTML artifact renders via the `view` link.
+Re-analysis of the same episode creates a NEW report that supersedes the old
+one — reports are never edited in place. Backend for the UserMCP
+`save_episode_report` tool. Design: `EpisodeReports-Plan1.md`.
+
+**Request:**
+```json
+{
+  "title": "Overnight — 2026-07-19 · 1:21–4:52 AM",
+  "report_html": "<!doctype html>…",
+  "narrative_text": "Quiet night overall. …",
+  "episode_start": "2026-07-19T01:21:00",
+  "episode_end": "2026-07-19T04:52:00",
+  "version": 2,
+  "supersedes_document_id": "uuid",
+  "annotations": {"spans": [], "events": [], "caveats": [], "discarded_readings": []},
+  "model_id": "claude-fable-5",
+  "source_tools": ["get_garmin_minute_detail", "get_bp_history"],
+  "created_via": "usermcp"
+}
+```
+
+- `title` (required, ≤200), `report_html` (required, ≤2 MB),
+  `narrative_text` (required, ≤256 KB — lead + narrative + verbatim
+  observations + caveats as plain text)
+- `episode_start` / `episode_end` (required, ISO 8601, end > start) — the
+  unpadded analyzed window, stored as UTC ISO strings in
+  `documents.provenance` (JSONB) along with `version` (int ≥1, default 1),
+  `supersedes_document_id` (must reference the caller's own live episode
+  report), `annotations`, and the optional provenance fields
+- The 'Episode Reports' folder is self-healed if the account predates the
+  2026-07-20 delta
+- Every create writes an `audit_log` row
+  (`action='document.episode_report_created'`) — HIPAA §164.312(b)
+
+**Response (201):** the created document row plus `episode_start`,
+`episode_end`, `version`, and `links` (`web`, `view`, `download`).
+
+**Errors:**
+- 400: missing/oversized fields, `episode_end` ≤ `episode_start`,
+  bad `supersedes_document_id`
+- 503 `{"code": "SCHEMA_NOT_READY"}`: the 2026-07-20 schema delta has not
+  been applied yet (deploy-order guard)
+
+### GET /api/v1/documents/episode-reports
+
+List the user's episode reports — envelope metadata only, never HTML.
+
+**Query params:**
+- `from` / `to` (ISO 8601): return reports whose analyzed window **overlaps**
+  `[from, to]` (compared against the provenance window)
+- `latest_only` (default `true`): hide reports superseded by a newer live
+  version; pass `false` to see the full version chain
+- `limit` / `offset`: standard pagination
+
+**Response (200):**
+```json
+{
+  "reports": [
+    {
+      "id": "uuid",
+      "title": "Overnight — 2026-07-19 · 1:21–4:52 AM",
+      "episode_start": "2026-07-19T08:21:00+00:00",
+      "episode_end": "2026-07-19T11:52:00+00:00",
+      "version": 2,
+      "supersedes_document_id": "uuid",
+      "created_at": "2026-07-20T14:00:00+00:00",
+      "links": {"web": "…", "view": "…", "download": "…"}
+    }
+  ],
+  "pagination": {"total": 1, "limit": 50, "offset": 0, "has_more": false}
+}
+```
+
+Ordered by `episode_start` descending.
+
+### GET /api/v1/documents/:id/view
+
+*Added 2026-07-20.* Serve the document **inline** (browser-rendered), unlike
+`/download` which forces an attachment. Works for any locally-stored
+document; remote-tier documents 302-redirect to `/download` (presign flow).
+
+`text/html` documents (episode reports) are served with
+`Content-Security-Policy: sandbox allow-scripts` and
+`X-Content-Type-Options: nosniff` — the page renders in an opaque origin so
+its scripts (Chart.js) run but cannot reach cookies, storage, or same-origin
+APIs. Rationale: report HTML is LLM-session-generated user content and
+documents are delegate-visible, so unsandboxed serving would be a stored-XSS
+path into another user's session.
+
+**Response (200):** the file body, inline. **404** if the document or its
+file is missing.
+
 ---
 
 ## Document Annotations

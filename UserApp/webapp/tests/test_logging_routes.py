@@ -958,6 +958,7 @@ class TestGetAllLogs:
         assert entry['description'] == 'AI session summary saved: Sample AI session summary'
         assert entry['links'] == {
             'web': f'/?activity=documents&doc={doc_id}',
+            'view': f'/api/v1/documents/{doc_id}/view',
             'download': f'/api/v1/documents/{doc_id}/download',
         }
         # The feed reads the documents table itself; the SELECT must exclude
