@@ -1312,15 +1312,23 @@ Authenticate with Garmin Connect.
 
 ### POST /api/v1/garmin/sync
 
-Trigger background sync job. Defaults to last 7 days if no dates provided.
+Trigger background sync job. All body fields are optional. Precedence:
+explicit `from_date`/`to_date` > `range` > default (last 90 days, stretched
+back to `last_sync` if older, so gaps self-heal).
 
 **Request:**
 ```json
 {
   "from_date": "2026-02-17",
-  "to_date": "2026-02-24"
+  "to_date": "2026-02-24",
+  "range": "week"
 }
 ```
+
+`range` ∈ `week` (7 days) | `month` (30) | `quarter` (90) | `all` (from
+2010-01-01, entire Garmin history — one API request per day, can run for
+hours). Windows are inclusive, ending at the user's local today. Invalid
+values → 400.
 
 **Response (202):**
 ```json

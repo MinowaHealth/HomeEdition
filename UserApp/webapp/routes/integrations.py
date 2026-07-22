@@ -30,6 +30,11 @@ bp = Blueprint('integrations', __name__, url_prefix='/api/v1')
 
 HEALTHKIT_UPLOAD_DIR = Path(tempfile.gettempdir()) / 'healthkit-uploads'
 
+# Garmin sync `range` presets (inclusive day counts). 'all' pulls from the
+# Garmin Connect era floor — the worker no-ops quickly on empty days.
+GARMIN_SYNC_RANGES = {'week': 7, 'month': 30, 'quarter': 90, 'all': None}
+GARMIN_ALL_SYNC_FLOOR = '2010-01-01'
+
 
 # ==================== HEALTHKIT UPLOAD ====================
 
@@ -371,6 +376,20 @@ def garmin_sync():
     data = request.get_json() or {}
     sync_from = data.get('from_date')
     sync_to = data.get('to_date')
+    sync_range = data.get('range')
+
+    if sync_range is not None and sync_range not in GARMIN_SYNC_RANGES:
+        cur.close()
+        conn.close()
+        return jsonify({'error': f"Invalid range '{sync_range}'. Allowed: week, month, quarter, all"}), 400
+
+    if not sync_from and sync_range:
+        # An explicit range means exactly that window — no self-heal reach-back.
+        if sync_range == 'all':
+            sync_from = GARMIN_ALL_SYNC_FLOOR
+        else:
+            days = GARMIN_SYNC_RANGES[sync_range]
+            sync_from = (datetime.now(get_user_timezone()).date() - timedelta(days=days - 1)).isoformat()
 
     if not sync_from:
         # Always cover at least the last 90 days so gaps self-heal (e.g. the months
@@ -402,7 +421,7 @@ def garmin_sync():
     from garmin_worker import queue_garmin_sync
     queue_garmin_sync(master_user_id, job_id, creds['encrypted_password'], sync_from, sync_to)
 
-    analytics.capture('garmin_sync_completed', {'job_id': job_id, 'source': 'manual'})
+    analytics.capture('garmin_sync_completed', {'job_id': job_id, 'source': 'manual', 'range': sync_range or 'default'})
 
     return jsonify({
         'job_id': job_id,

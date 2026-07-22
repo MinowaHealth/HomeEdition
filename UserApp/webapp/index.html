@@ -139,7 +139,7 @@
         const icons = {
             logging: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg>,
             analysis: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
-            observations: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+            feedback: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
             documents: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
             config: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>,
             logout: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
@@ -155,10 +155,7 @@
                 { key: 'stress-bp',     label: 'Stress & BP' },
                 { key: 'sleep',         label: 'Sleep Analysis' },
             ]},
-            observations:  { label: 'Observations',  defaultView: 'observations',  sidebar: [
-                { key: 'observations',  label: 'Observations' },
-                { key: 'feedback',      label: 'Feedback' },
-            ]},
+            feedback:      { label: 'Feedback',      defaultView: 'feedback',      sidebar: null },
             documents:     { label: 'Documents',     defaultView: 'documents',     sidebar: null },
             config:        { label: 'Configuration', defaultView: 'meals',         sidebar: [
                 { key: 'meals',            label: 'Meals' },
@@ -282,7 +279,6 @@
                     {/* ===== EDITOR AREA ===== */}
                     <div className="editor-area">
                         {view === 'logging' && <LoggingManager />}
-                        {view === 'observations' && <ObservationsManager />}
                         {view === 'feedback' && <FeedbackManager />}
                         {view === 'documents' && <DocumentsManager initialDocId={deepLink.doc} />}
                         {view === 'meals' && <MealsManager />}
@@ -453,7 +449,7 @@
                             <label>
                                 <input
                                     type="checkbox"
-                                    checked={formData.is_vegan === 1}
+                                    checked={!!formData.is_vegan}
                                     onChange={(e) => setFormData({ ...formData, is_vegan: e.target.checked ? 1 : 0 })}
                                 />
                                 Vegan
@@ -461,7 +457,7 @@
                             <label>
                                 <input
                                     type="checkbox"
-                                    checked={formData.is_keto === 1}
+                                    checked={!!formData.is_keto}
                                     onChange={(e) => setFormData({ ...formData, is_keto: e.target.checked ? 1 : 0 })}
                                 />
                                 Keto
@@ -469,7 +465,7 @@
                             <label>
                                 <input
                                     type="checkbox"
-                                    checked={formData.is_halal === 1}
+                                    checked={!!formData.is_halal}
                                     onChange={(e) => setFormData({ ...formData, is_halal: e.target.checked ? 1 : 0 })}
                                 />
                                 Halal
@@ -660,7 +656,7 @@
                             <label>
                                 <input
                                     type="checkbox"
-                                    checked={formData.is_template === 1}
+                                    checked={!!formData.is_template}
                                     onChange={(e) => setFormData({ ...formData, is_template: e.target.checked ? 1 : 0 })}
                                 />
                                 Template
@@ -870,7 +866,7 @@
                             <label>
                                 <input
                                     type="checkbox"
-                                    checked={formData.is_active === 1}
+                                    checked={!!formData.is_active}
                                     onChange={(e) => setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })}
                                 />
                                 Active
@@ -878,7 +874,7 @@
                             <label>
                                 <input
                                     type="checkbox"
-                                    checked={formData.take_with_food === 1}
+                                    checked={!!formData.take_with_food}
                                     onChange={(e) => setFormData({ ...formData, take_with_food: e.target.checked ? 1 : 0 })}
                                 />
                                 Take with Food
@@ -1113,7 +1109,7 @@
                             <label>
                                 <input
                                     type="checkbox"
-                                    checked={formData.is_active === 1}
+                                    checked={!!formData.is_active}
                                     onChange={(e) => setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })}
                                 />
                                 Active
@@ -1273,7 +1269,7 @@
                             <label>
                                 <input
                                     type="checkbox"
-                                    checked={formData.is_active === 1}
+                                    checked={!!formData.is_active}
                                     onChange={(e) => setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })}
                                 />
                                 Active
@@ -1667,6 +1663,9 @@
             // Current job polling
             const [currentJobId, setCurrentJobId] = useState(null);
 
+            // Sync timeframe: week/month/quarter pills; 'all' goes through its own button
+            const [syncRange, setSyncRange] = useState('week');
+
             const fetchStatus = async () => {
                 try {
                     const res = await fetch('/api/v1/garmin/status');
@@ -1768,7 +1767,11 @@
                 }
             };
 
-            const handleSync = async () => {
+            const handleSync = async (range) => {
+                if (range === 'all' && !window.confirm(
+                    'Pull your entire Garmin history? One day per request — this can run for hours.')) {
+                    return;
+                }
                 setSyncing(true);
                 setError(null);
                 setMessage(null);
@@ -1777,7 +1780,7 @@
                     const res = await fetch('/api/v1/garmin/sync', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({})
+                        body: JSON.stringify({ range: range || syncRange })
                     });
 
                     const data = await res.json();
@@ -1887,9 +1890,28 @@
                                 {status.display_name && <p><strong>Display Name:</strong> {status.display_name}</p>}
                                 <p><strong>Last Sync:</strong> {status.last_sync_at ? formatDate(status.last_sync_at) : 'Never'}</p>
 
-                                <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+                                <div style={{ marginTop: '15px', display: 'flex', gap: '0' }}>
+                                    {[['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter']].map(([key, label], i) => (
+                                        <button
+                                            key={key}
+                                            onClick={() => setSyncRange(key)}
+                                            style={{
+                                                background: syncRange === key ? 'var(--color-accent)' : 'var(--color-card)',
+                                                color: syncRange === key ? 'white' : 'var(--color-text)',
+                                                padding: '8px 16px',
+                                                border: '1px solid var(--color-border)',
+                                                borderLeft: i === 0 ? '1px solid var(--color-border)' : 'none',
+                                                borderRadius: i === 0 ? '4px 0 0 4px' : (i === 2 ? '0 4px 4px 0' : '0'),
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center' }}>
                                     <button
-                                        onClick={handleSync}
+                                        onClick={() => handleSync()}
                                         disabled={syncing}
                                         style={{
                                             background: syncing ? 'var(--color-muted)' : 'var(--color-accent)',
@@ -1916,6 +1938,26 @@
                                     >
                                         Disconnect
                                     </button>
+                                </div>
+                                <div style={{ marginTop: '20px', paddingTop: '12px', borderTop: '1px dashed var(--color-border)' }}>
+                                    <button
+                                        onClick={() => handleSync('all')}
+                                        disabled={syncing}
+                                        style={{
+                                            background: 'transparent',
+                                            color: 'var(--color-muted)',
+                                            padding: '6px 12px',
+                                            border: '1px solid var(--color-border)',
+                                            borderRadius: '4px',
+                                            cursor: syncing ? 'not-allowed' : 'pointer',
+                                            fontSize: '13px'
+                                        }}
+                                    >
+                                        ⚠ Sync Everything
+                                    </button>
+                                    <span style={{ marginLeft: '10px', fontSize: '12px', color: 'var(--color-muted)' }}>
+                                        Entire Garmin history — one day per request, can run for hours.
+                                    </span>
                                 </div>
                             </div>
                         ) : (
@@ -3277,6 +3319,12 @@
                             quantity: formData.quantity,
                             timestamp: submitTimestamp
                         };
+                    } else if (logType === 'observation') {
+                        endpoint = `observations/${editing}`;
+                        payload = {
+                            observation: formData.observation,
+                            timestamp: submitTimestamp
+                        };
                     } else {
                         // health-input
                         endpoint = `health-input-log/${editing}`;
@@ -3344,6 +3392,12 @@
                             unit: formData.glucose_unit || UNIT_FORM_DEFAULTS.glucose_unit,
                             timestamp: submitTimestamp
                         };
+                    } else if (logType === 'observation') {
+                        endpoint = 'observations';
+                        payload = {
+                            observation: formData.observation,
+                            timestamp: submitTimestamp
+                        };
                     } else {
                         // health-input or alternative
                         endpoint = 'log-health-input';
@@ -3387,6 +3441,18 @@
                         timestamp: localTime
                     });
                     setLogType('food-item');
+                } else if (log.type === 'observation') {
+                    setFormData({
+                        meal_id: '',
+                        stack_id: '',
+                        input_id: '',
+                        food_item_id: '',
+                        quantity: '',
+                        dosage: '',
+                        observation: log.content || '',
+                        timestamp: localTime
+                    });
+                    setLogType('observation');
                 } else {
                     // health_input
                     setFormData({
@@ -3420,6 +3486,9 @@
                     case 'weight':
                     case 'blood_glucose':
                         endpoint = `health-metrics/${id}`;
+                        break;
+                    case 'observation':
+                        endpoint = `observations/${id}`;
                         break;
                     default:
                         console.error('Unknown log type:', type);
@@ -3585,6 +3654,15 @@
                                 />
                                 Blood Sugar
                             </label>
+                            <label>
+                                <input
+                                    type="radio"
+                                    value="observation"
+                                    checked={logType === 'observation'}
+                                    onChange={(e) => setLogType(e.target.value)}
+                                />
+                                Observation
+                            </label>
                         </div>
                     )}
 
@@ -3623,6 +3701,14 @@
                                             placeholder="Quantity"
                                             value={formData.quantity}
                                             onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                                            required
+                                        />
+                                    ) : logType === 'observation' ? (
+                                        <textarea
+                                            placeholder="Enter your health observation..."
+                                            value={formData.observation || ''}
+                                            onChange={(e) => setFormData({ ...formData, observation: e.target.value })}
+                                            rows="4"
                                             required
                                         />
                                     ) : (
@@ -3912,6 +3998,16 @@
                                     <option value="mmol/L">mmol/L</option>
                                 </select>
                             </div>
+                        ) : logType === 'observation' ? (
+                            <div className="form-row">
+                                <textarea
+                                    placeholder="Enter your health observation..."
+                                    value={formData.observation || ''}
+                                    onChange={(e) => setFormData({ ...formData, observation: e.target.value })}
+                                    rows="4"
+                                    required
+                                />
+                            </div>
                         ) : null}
 
                         <div className="form-actions">
@@ -3926,7 +4022,8 @@
                                         'blood-pressure': 'Log Blood Pressure',
                                         'temperature': 'Log Temperature',
                                         'weight': 'Log Weight',
-                                        'blood-glucose': 'Log Blood Sugar'
+                                        'blood-glucose': 'Log Blood Sugar',
+                                        'observation': 'Log Observation'
                                     };
                                     return labels[logType] || 'Log Entry';
                                 })()}
@@ -3995,184 +4092,6 @@
                             ))}
                         </tbody>
                     </table>
-                </div>
-            );
-        }
-
-        // ==================== OBSERVATIONS ====================
-
-        function ObservationsManager() {
-            const [observations, setObservations] = useState([]);
-            const [editing, setEditing] = useState(null);
-            const [timestampTouched, setTimestampTouched] = useState(false);
-            const [formData, setFormData] = useState({
-                observation: '',
-                timestamp: getPacificTimeString()
-            });
-
-            useEffect(() => {
-                fetchObservations();
-            }, []);
-
-            const fetchObservations = async () => {
-                const pageSize = 200;
-                const all = [];
-                let offset = 0;
-                while (true) {
-                    const response = await fetch(`${API_BASE}/observations?limit=${pageSize}&offset=${offset}`);
-                    const data = await response.json();
-                    const page = data.entries || [];
-                    all.push(...page);
-                    if (!data.pagination?.has_more) break;
-                    offset += pageSize;
-                }
-                setObservations(all);
-            };
-
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-
-                // Auto-refresh timestamp to "now" if user hasn't manually changed it
-                const submitData = timestampTouched
-                    ? formData
-                    : { ...formData, timestamp: getPacificTimeString() };
-                if (!timestampTouched) {
-                    setFormData(submitData);
-                }
-
-                if (editing) {
-                    await fetch(`${API_BASE}/observations/${editing}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(submitData)
-                    });
-                } else {
-                    await fetch(`${API_BASE}/observations`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(submitData)
-                    });
-                }
-
-                setTimestampTouched(false);
-                setFormData({
-                    observation: '',
-                    timestamp: getPacificTimeString()
-                });
-                setEditing(null);
-                fetchObservations();
-            };
-
-            const handleEdit = (obs) => {
-                setEditing(obs.id);
-                setTimestampTouched(true);
-                setFormData({
-                    observation: obs.observation,
-                    timestamp: getPacificTimeString(new Date(obs.timestamp))
-                });
-            };
-
-            const handleDelete = async (id) => {
-                await fetch(`${API_BASE}/observations/${id}`, { method: 'DELETE' });
-                fetchObservations();
-            };
-
-            const resetForm = () => {
-                setEditing(null);
-                setTimestampTouched(false);
-                setFormData({
-                    observation: '',
-                    timestamp: getPacificTimeString()
-                });
-            };
-
-            const formatTimestamp = (timestamp) => {
-                const date = new Date(timestamp);
-                const options = {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false,
-                    timeZone: 'America/Los_Angeles'
-                };
-                return date.toLocaleString('en-US', options) + ' PT';
-            };
-
-            return (
-                <div className="manager">
-                    <h2>Health Observations</h2>
-
-                    <div style={{
-                        marginBottom: 'var(--space-sm)',
-                        padding: '10px 14px',
-                        border: '1px solid var(--color-border)',
-                        borderRadius: '8px',
-                        background: 'var(--color-surface)'
-                    }}>
-                        <label style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--color-muted)', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Log Time (PT)</label>
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <input
-                                type="date"
-                                value={formData.timestamp.split('T')[0]}
-                                style={{ flex: 1, padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: '4px', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: '0.95rem' }}
-                                onChange={(e) => {
-                                    const time = formData.timestamp.split('T')[1] || '12:00';
-                                    setTimestampTouched(true);
-                                    setFormData({ ...formData, timestamp: `${e.target.value}T${time}` });
-                                }}
-                            />
-                            <input
-                                type="time"
-                                value={formData.timestamp.split('T')[1] || '12:00'}
-                                style={{ flex: 1, padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: '4px', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: '0.95rem' }}
-                                onChange={(e) => {
-                                    const date = formData.timestamp.split('T')[0];
-                                    setTimestampTouched(true);
-                                    setFormData({ ...formData, timestamp: `${date}T${e.target.value}` });
-                                }}
-                            />
-                            <button type="button" className="btn" onClick={() => {
-                                setTimestampTouched(false);
-                                setFormData({ ...formData, timestamp: getPacificTimeString() });
-                            }} style={{ fontSize: '0.8rem', padding: '6px 12px', whiteSpace: 'nowrap' }}>Now</button>
-                        </div>
-                    </div>
-
-                    <form onSubmit={handleSubmit} className="form">
-                        <div className="form-row">
-                            <textarea
-                                placeholder="Enter your health observation..."
-                                value={formData.observation}
-                                onChange={(e) => setFormData({ ...formData, observation: e.target.value })}
-                                rows="4"
-                                required
-                            />
-                        </div>
-
-                        <div className="form-actions">
-                            <button type="submit">{editing ? 'Update' : 'Add'} Observation</button>
-                            {editing && <button type="button" onClick={resetForm}>Cancel</button>}
-                        </div>
-                    </form>
-
-                    <div className="observations-list">
-                        {observations.map(obs => (
-                            <div key={obs.id} className="observation-card">
-                                <div className="observation-time">
-                                    {formatTimestamp(obs.timestamp)}
-                                </div>
-                                <div className="observation-text">
-                                    {obs.observation}
-                                </div>
-                                <div className="observation-actions">
-                                    <button onClick={() => handleEdit(obs)}>Edit</button>
-                                    <button onClick={() => handleDelete(obs.id)}>Delete</button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
                 </div>
             );
         }
