@@ -377,6 +377,10 @@ def garmin_sync():
     sync_from = data.get('from_date')
     sync_to = data.get('to_date')
     sync_range = data.get('range')
+    # MCP-triggered syncs are quiet (no data_sync_log / all-logs entry) and
+    # report the watch's last upload to Garmin Connect so the caller can warn
+    # the user when the device itself is behind.
+    is_mcp = data.get('source') == 'mcp'
 
     if sync_range is not None and sync_range not in GARMIN_SYNC_RANGES:
         cur.close()
@@ -419,17 +423,46 @@ def garmin_sync():
     conn.close()
 
     from garmin_worker import queue_garmin_sync
-    queue_garmin_sync(master_user_id, job_id, creds['encrypted_password'], sync_from, sync_to)
+    queue_garmin_sync(master_user_id, job_id, creds['encrypted_password'], sync_from, sync_to,
+                      log_sync_event=not is_mcp)
 
-    analytics.capture('garmin_sync_completed', {'job_id': job_id, 'source': 'manual', 'range': sync_range or 'default'})
+    analytics.capture('garmin_sync_completed', {'job_id': job_id, 'source': 'mcp' if is_mcp else 'manual', 'range': sync_range or 'default'})
 
-    return jsonify({
+    resp = {
         'job_id': job_id,
         'status': 'pending',
         'sync_from': sync_from,
         'sync_to': sync_to,
         'message': 'Garmin sync job queued'
-    }), 202
+    }
+    if is_mcp:
+        resp['device_last_sync'] = _garmin_device_last_upload(creds['encrypted_password'])
+    return jsonify(resp), 202
+
+
+def _garmin_device_last_upload(garth_session_b64: str):
+    """Last watch → Garmin Connect upload time as UTC ISO string, or None.
+
+    Advisory only — any failure (expired session, Garmin outage, timeout)
+    returns None rather than failing the sync request.
+    """
+    import base64
+    from garminconnect import Garmin
+
+    def _fetch():
+        g_client = Garmin()
+        g_client.garth.loads(base64.b64decode(garth_session_b64).decode())
+        info = g_client.garth.connectapi('/device-service/deviceservice/mylastused')
+        upload_ms = (info or {}).get('lastUsedDeviceUploadTime')
+        if not upload_ms:
+            return None
+        return datetime.fromtimestamp(upload_ms / 1000, tz=timezone.utc).isoformat()
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(_fetch).result(timeout=10)
+    except Exception:
+        return None
 
 
 @bp.route('/garmin/jobs/<job_id>', methods=['GET'])

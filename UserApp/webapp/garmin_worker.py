@@ -49,7 +49,8 @@ def setup_job_logger(job_id: str):
 
 
 def process_garmin_sync(user_id: str, job_id: str, garth_session_b64: str,
-                        sync_from: str, sync_to: str):
+                        sync_from: str, sync_to: str,
+                        log_sync_event: bool = True):
     """
     Process a Garmin sync job in background.
 
@@ -59,6 +60,9 @@ def process_garmin_sync(user_id: str, job_id: str, garth_session_b64: str,
         garth_session_b64: Base64 encoded garth session data
         sync_from: Start date (YYYY-MM-DD)
         sync_to: End date (YYYY-MM-DD)
+        log_sync_event: When False (MCP-triggered syncs), skip the
+            data_sync_log insert so the sync doesn't appear in /all-logs.
+            The garmin_sync_jobs row is written regardless.
     """
     from garminconnect import Garmin
     from db_manager import get_direct_connection_for_user
@@ -180,10 +184,11 @@ def process_garmin_sync(user_id: str, job_id: str, garth_session_b64: str,
         """, (json.dumps(counts), job_id, user_id))
 
         # User-visible sync history (surfaced by /all-logs as type='sync')
-        cur.execute("""
-            INSERT INTO data_sync_log (tenant_id, user_id, source, job_id, status, detail, synced_at)
-            VALUES (1, %s::uuid, 'garmin', %s::uuid, 'completed', %s::jsonb, now())
-        """, (user_id, job_id, json.dumps(counts)))
+        if log_sync_event:
+            cur.execute("""
+                INSERT INTO data_sync_log (tenant_id, user_id, source, job_id, status, detail, synced_at)
+                VALUES (1, %s::uuid, 'garmin', %s::uuid, 'completed', %s::jsonb, now())
+            """, (user_id, job_id, json.dumps(counts)))
 
         # Update last sync time in credentials
         cur.execute("""
@@ -221,10 +226,11 @@ def process_garmin_sync(user_id: str, job_id: str, garth_session_b64: str,
                     WHERE id = %s::uuid AND user_id = %s
                 """, (error_msg, job_id, user_id))
 
-                cur.execute("""
-                    INSERT INTO data_sync_log (tenant_id, user_id, source, job_id, status, error_message, synced_at)
-                    VALUES (1, %s::uuid, 'garmin', %s::uuid, 'failed', %s, now())
-                """, (user_id, job_id, error_msg))
+                if log_sync_event:
+                    cur.execute("""
+                        INSERT INTO data_sync_log (tenant_id, user_id, source, job_id, status, error_message, synced_at)
+                        VALUES (1, %s::uuid, 'garmin', %s::uuid, 'failed', %s, now())
+                    """, (user_id, job_id, error_msg))
 
                 conn.commit()
         except Exception as update_error:
@@ -554,7 +560,8 @@ def import_stress_data(cur, user_id: str, from_date: date, to_date: date, garmin
 
 
 def queue_garmin_sync(user_id: str, job_id: str, garth_session: str,
-                      sync_from: str, sync_to: str):
+                      sync_from: str, sync_to: str,
+                      log_sync_event: bool = True):
     """Queue a Garmin sync job for background processing."""
     logger = setup_job_logger(job_id)
     logger.info("Queuing Garmin sync job")
@@ -563,7 +570,7 @@ def queue_garmin_sync(user_id: str, job_id: str, garth_session: str,
 
     thread = threading.Thread(
         target=process_garmin_sync,
-        args=(user_id, job_id, garth_session, sync_from, sync_to),
+        args=(user_id, job_id, garth_session, sync_from, sync_to, log_sync_event),
         daemon=True,
         name=f"garmin-sync-{job_id}"
     )
