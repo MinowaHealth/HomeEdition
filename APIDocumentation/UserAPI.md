@@ -104,22 +104,33 @@ Time-based bundles of health inputs (e.g., "Morning Meds").
 
 **Response (200):**
 ```json
-[
-  {
-    "id": "uuid",
-    "name": "Morning Meds",
-    "timeframe_name": "Wake Up",
-    "is_active": true,
-    "inputs": [
-      {
-        "input_id": "uuid",
-        "input_name": "Lisinopril",
-        "dosage_override": null
-      }
-    ]
-  }
-]
+{
+  "entries": [
+    {
+      "id": "uuid",
+      "name": "Morning Meds",
+      "timeframe_name": "Wake Up",
+      "timeframe_time_of_day": "07:30:00",
+      "timeframe_frequency": "daily",
+      "is_active": true,
+      "inputs": [
+        {
+          "input_id": "uuid",
+          "input_name": "Lisinopril",
+          "input_type": "medication",
+          "default_dosage": "10",
+          "default_unit": "mg",
+          "dosage_override": null
+        }
+      ]
+    }
+  ],
+  "pagination": {"total": 1, "limit": 50, "offset": 0, "has_more": false}
+}
 ```
+
+Effective dose per input = `dosage_override` falling back to
+`default_dosage`/`default_unit` (added 2026-07-16 for MCP stack analysis).
 
 ### POST /api/v1/stacks
 
@@ -330,9 +341,16 @@ Log all inputs in a stack at once.
   "message": "Stack logged successfully",
   "stack_id": "uuid",
   "inputs_found": 3,
-  "inputs_logged": 3
+  "inputs_logged": 3,
+  "remaining": [
+    {"input_id": "uuid", "input_name": "Metformin", "remaining": 29.0}
+  ]
 }
 ```
+
+`remaining` lists count-remaining for each stack input that has inventory
+(started by logging arrivals via `/acquisitions`); items with no inventory
+recorded are omitted. One dose logged = one unit decremented (floor 0).
 
 ### POST /api/v1/log-health-input
 
@@ -358,7 +376,11 @@ Log a single health input intake. Supports both catalog items and freeform text.
 
 Required: `timestamp`, plus either `input_id` or `free_text`
 
-**Response (201):** `{"id": "uuid", "message": "Health input logged successfully"}`
+**Response (201):** `{"id": "uuid", "message": "Health input logged successfully", "remaining": 29.0}`
+
+`remaining` is the item's count-remaining after decrementing one unit for
+this dose — `null` for freeform logs and for items with no inventory
+recorded (inventory starts with the first arrival logged via `/acquisitions`).
 
 ### POST /api/v1/log-meal
 
@@ -506,9 +528,9 @@ Combined view of all recent log entries across all types.
 ]
 ```
 
-The `type` field distinguishes: `health_input`, `food`, `blood_pressure`, `temperature`, `weight`, `steps`, `heart_rate`, `sleep`, `nutrition`, `medication`, `observation`, `sync`, `document`.
+The `type` field distinguishes: `health_input`, `food`, `blood_pressure`, `temperature`, `weight`, `steps`, `heart_rate`, `sleep`, `nutrition`, `medication`, `observation`, `sync`, `document`, `acquisition`.
 
-**Query params:** `kind` (optional) filters to one slice: `medication`, `food`, `observation`, `sync`, `document`. The `applied` block echoes the filter when honored; unknown kinds run unfiltered with `applied.kind: null`.
+**Query params:** `kind` (optional) filters to one slice: `medication`, `food`, `observation`, `sync`, `document`, `acquisition`. The `applied` block echoes the filter when honored; unknown kinds run unfiltered with `applied.kind: null`.
 
 `type: observation` entries carry patient-reported observations from `health_observations`:
 ```json
@@ -539,6 +561,22 @@ The `type` field distinguishes: `health_input`, `food`, `blood_pressure`, `tempe
 }
 ```
 
+`type: acquisition` entries are supply arrivals from `health_input_acquisitions` (see **Acquisitions** below):
+```json
+{
+  "id": "uuid",
+  "timestamp": "2026-07-16T00:00:00+00:00",
+  "type": "acquisition",
+  "description": "Arrived: Magnesium (90 tablets, NOW)",
+  "input_id": "uuid-or-null",
+  "item_name": "Magnesium",
+  "quantity": 90.0,
+  "unit": "tablets",
+  "brand": "NOW",
+  "vendor": "Amazon"
+}
+```
+
 `type: document` entries are document arrivals read directly from the
 `documents` table (added 2026-07-16) — uploads, inbound faxes, and saved AI
 session summaries. No separate event table: the document row is the event,
@@ -562,6 +600,62 @@ session-gated view links:
 ```
 
 ---
+
+
+## Acquisitions (Supply Log)
+
+Dated arrival events for medications/supplements — amount, cost, brand,
+vendor. Purpose: distinguish supply gaps from usage choices by lining
+arrivals up against intake logs. Design: `StacksMCP-AcquisitionLog-Plan1.md`.
+
+Inventory: a POST with `health_input_id` + `quantity` adds to the item's
+`current_quantity`; each dose logged via `/log-health-input` or `/log-stack`
+subtracts one unit ("count remaining" in those responses). PUT/DELETE edit
+the journal only — inventory is not retroactively adjusted.
+
+**Source**: [`routes/health_inputs.py`](../UserApp/webapp/routes/health_inputs.py)
+
+### POST /api/v1/acquisitions
+
+**Request:**
+```json
+{
+  "health_input_id": "uuid (optional — links to catalog item)",
+  "item_name": "Magnesium (required if no health_input_id; defaults to catalog name)",
+  "acquired_date": "2026-07-16",
+  "quantity": 90,
+  "unit": "tablets",
+  "cost": 14.99,
+  "brand": "NOW",
+  "vendor": "Amazon",
+  "expiration_date": "2028-01-01",
+  "notes": "optional"
+}
+```
+
+Required: `acquired_date`, plus `item_name` or `health_input_id`.
+
+**Response (201):** `{"acquisition": {…}, "remaining": 120.0}` — `remaining`
+is the item's new `current_quantity` (null for freeform or no-quantity posts).
+
+### GET /api/v1/acquisitions
+
+**Query params:** `health_input_id`, `start_date`, `end_date` (on
+`acquired_date`), `limit`, `offset`.
+
+**Response (200):** `{"entries": [{…}], "pagination": {…}}` — newest first.
+
+### PUT /api/v1/acquisitions/:id
+
+Partial update of `item_name`, `acquired_date`, `quantity`, `unit`, `cost`,
+`brand`, `vendor`, `expiration_date`, `notes`.
+
+**Response (200):** `{"acquisition": {…}}`
+
+### DELETE /api/v1/acquisitions/:id
+
+**Response (200):** `{"message": "Acquisition deleted"}`
+
 
 ## Log Promotions
 

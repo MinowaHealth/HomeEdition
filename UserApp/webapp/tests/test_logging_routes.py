@@ -764,6 +764,17 @@ class TestGetAllLogs:
                 'source': 'upload',
                 'mime_type': 'application/pdf',
             }],
+            # acquisitions
+            [{
+                'id': uuid.uuid4(),
+                'health_input_id': uuid.uuid4(),
+                'item_name': 'Magnesium',
+                'acquired_date': date(2026, 4, 19),
+                'quantity': 90,
+                'unit': 'tablets',
+                'brand': 'NOW',
+                'vendor': 'Amazon',
+            }],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -774,14 +785,14 @@ class TestGetAllLogs:
         types = {e['type'] for e in body['entries']}
         assert {'health_input', 'blood_pressure', 'temperature', 'weight',
                 'blood_glucose', 'sleep', 'nutrition', 'medication', 'food',
-                'observation', 'sync'} <= types
+                'observation', 'sync', 'document', 'acquisition'} <= types
         # Sorted DESC by timestamp
         ts = [e['timestamp'] for e in body['entries']]
         assert ts == sorted(ts, reverse=True)
 
     def test_empty_all_sources(self, client, mock_db, auth_headers):
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 11
+        cur.fetchall.side_effect = [[]] * 12
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
         assert resp.status_code == 200
@@ -803,7 +814,7 @@ class TestGetAllLogs:
                 'default_unit': None,
                 'stack_name': None,
             }],
-            [], [], [], [], [], [], [], [], [], [],
+            [], [], [], [], [], [], [], [], [], [], [], [],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -827,7 +838,7 @@ class TestGetAllLogs:
                 'notes': 'not-json-but-still-text',
                 'source': None,
             }],
-            [], [], [], [],
+            [], [], [], [], [],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -853,9 +864,9 @@ class TestGetAllLogs:
         }
 
     def test_date_filter_applied_to_every_source(self, client, mock_db, auth_headers):
-        """Both window bounds must be bound params on all 11 source SELECTs."""
+        """Both window bounds must be bound params on all 12 source SELECTs."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 11
+        cur.fetchall.side_effect = [[]] * 12
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2026-05-01&end_date=2026-05-15',
@@ -868,7 +879,7 @@ class TestGetAllLogs:
             and date(2026, 5, 1) in tuple(c.args[1])
             and date(2026, 5, 15) in tuple(c.args[1])
         ]
-        assert len(dated_calls) == 11
+        assert len(dated_calls) == 12
         applied = resp.get_json()['applied']
         assert applied['start_date'] == '2026-05-01'
         assert applied['end_date'] == '2026-05-15'
@@ -959,11 +970,11 @@ class TestGetAllLogs:
         """A kind the route doesn't map runs everything and reports kind as
         not applied rather than lying."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 11
+        cur.fetchall.side_effect = [[]] * 12
 
         resp = client.get('/api/v1/all-logs?kind=telemetry', headers=auth_headers)
         assert resp.status_code == 200
-        assert cur.fetchall.call_count == 11
+        assert cur.fetchall.call_count == 12
         assert resp.get_json()['applied']['kind'] is None
 
     def test_input_id_runs_only_health_input_log(self, client, mock_db, auth_headers):
@@ -1009,7 +1020,7 @@ class TestGetAllLogs:
         conn, cur = mock_db
         cur.fetchall.side_effect = [
             [self._hil_row() for _ in range(100)],
-            [], [], [], [], [], [], [], [], [], [],
+            [], [], [], [], [], [], [], [], [], [], [], [],
         ]
 
         resp = client.get(
@@ -1023,7 +1034,7 @@ class TestGetAllLogs:
         """start_date == end_date is a full-day window on every source, not
         an empty or rejected one (the Bug-2 shape, pinned here too)."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 11
+        cur.fetchall.side_effect = [[]] * 12
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2026-05-18&end_date=2026-05-18',
@@ -1035,13 +1046,13 @@ class TestGetAllLogs:
             if len(c.args) == 2
             and tuple(c.args[1]).count(date(2026, 5, 18)) == 2
         ]
-        assert len(dated_calls) == 11
+        assert len(dated_calls) == 12
 
     def test_empty_window_never_falls_back_to_newest(self, client, mock_db, auth_headers):
         """A window with no data must return empty — never the unfiltered
         newest-100 rows (the original Bug 1 behavior)."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 11
+        cur.fetchall.side_effect = [[]] * 12
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2030-01-01&end_date=2030-01-31',
@@ -1055,9 +1066,9 @@ class TestGetAllLogs:
             and date(2030, 1, 1) in tuple(c.args[1])
             and date(2030, 1, 31) in tuple(c.args[1])
         ]
-        assert len(dated_calls) == 11, (
+        assert len(dated_calls) == 12, (
             'a source SELECT ran without the window bounds — newest-rows fallback')
-        assert cur.fetchall.call_count == 11
+        assert cur.fetchall.call_count == 12
 
 
 # ============================================================================

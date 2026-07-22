@@ -1577,6 +1577,38 @@ CREATE TABLE IF NOT EXISTS public.garmin_sync_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_garmin_sync_tenant_user_status ON public.garmin_sync_jobs USING btree (tenant_id, user_id, status);
 
+-- Acquisition log: one row per purchase/refill of a med or supplement.
+-- POST bumps health_inputs.current_quantity; dose logging decrements it
+-- (count-remaining inventory). health_input_id is SET NULL on input
+-- deletion so purchase history survives catalog cleanup.
+-- (Enterprise mirror: health_input_acquisitions, 2026-07-16 delta; RLS
+-- stripped here — app-level user_id scoping.)
+CREATE TABLE IF NOT EXISTS public.health_input_acquisitions (
+    tenant_id SMALLINT NOT NULL DEFAULT 1,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    sqlite_id BIGINT,
+    user_id uuid NOT NULL,
+    health_input_id uuid,
+    item_name text NOT NULL,
+    acquired_date date NOT NULL,
+    quantity numeric(10,2),
+    unit text,
+    cost numeric(10,2),
+    brand text,
+    vendor text,
+    expiration_date date,
+    notes text,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    synced_at timestamp with time zone,
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id, user_id) REFERENCES public.users(tenant_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id, health_input_id) REFERENCES public.health_inputs(tenant_id, id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hia_user_date ON public.health_input_acquisitions USING btree (tenant_id, user_id, acquired_date DESC);
+CREATE INDEX IF NOT EXISTS idx_hia_user_input ON public.health_input_acquisitions USING btree (tenant_id, user_id, health_input_id);
+
 -- Sync history: one append-only row per terminal sync/import run (Garmin,
 -- HealthKit, future ecosystems), surfaced by /all-logs as type='sync'.
 -- Forward-only — no backfill of historical job rows.

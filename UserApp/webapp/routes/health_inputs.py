@@ -5,6 +5,7 @@ Blueprint for managing medications, supplements, stacks (bundles), and timeframe
 """
 from flask import Blueprint, request, jsonify, g, current_app
 from datetime import datetime
+from db_driver import sql
 import pytz
 import uuid
 import json
@@ -365,11 +366,16 @@ def get_stacks():
 
     cur.execute("""
         SELECT count(*) OVER() AS _total,
-               s.id, s.name, s.timeframe_id, t.name as timeframe_name, s.is_active,
+               s.id, s.name, s.timeframe_id, t.name as timeframe_name,
+               t.time_of_day as timeframe_time_of_day,
+               t.frequency as timeframe_frequency, s.is_active,
                json_agg(
                    json_build_object(
                        'input_id', si.health_input_id,
                        'input_name', hi.name,
+                       'input_type', hi.input_type,
+                       'default_dosage', hi.default_dosage,
+                       'default_unit', hi.default_unit,
                        'dosage_override', si.dosage_override
                    )
                ) FILTER (WHERE si.id IS NOT NULL) as inputs
@@ -378,7 +384,7 @@ def get_stacks():
         LEFT JOIN stack_inputs si ON s.id = si.stack_id
         LEFT JOIN health_inputs hi ON si.health_input_id = hi.id
         WHERE s.user_id = %s
-        GROUP BY s.id, s.name, s.timeframe_id, t.name, s.is_active
+        GROUP BY s.id, s.name, s.timeframe_id, t.name, t.time_of_day, t.frequency, s.is_active
         ORDER BY s.name
         LIMIT %s OFFSET %s
     """, (user_id, limit, offset))
@@ -708,3 +714,268 @@ def delete_timeframe(timeframe_id):
     conn.close()
 
     return jsonify({'message': 'Timeframe deleted', 'stacks_orphaned': orphaned})
+
+
+# ==================== ACQUISITIONS ====================
+# Dated arrival events for meds/supplements (supply-vs-choice analysis).
+# Journal + inventory: POST bumps health_inputs.current_quantity so dose
+# logging can show "count remaining". PUT/DELETE edit the journal only —
+# no retroactive inventory adjustment; correct the item's count directly.
+
+_ACQ_FIELDS = ('quantity', 'unit', 'cost', 'brand', 'vendor',
+               'expiration_date', 'notes')
+
+
+def _parse_iso_date(value, field):
+    """Return (date, None) or (None, error_response)."""
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date(), None
+    except (TypeError, ValueError):
+        return None, (jsonify({'error': f'{field} must be YYYY-MM-DD'}), 400)
+
+
+def _acq_row_to_json(row):
+    out = dict(row)
+    out['id'] = str(out['id'])
+    if out.get('health_input_id'):
+        out['health_input_id'] = str(out['health_input_id'])
+    for k in ('acquired_date', 'expiration_date'):
+        if out.get(k):
+            out[k] = out[k].isoformat()
+    for k in ('quantity', 'cost'):
+        if out.get(k) is not None:
+            out[k] = float(out[k])
+    out.pop('tenant_id', None)
+    out.pop('user_id', None)
+    return out
+
+
+@bp.route('/acquisitions', methods=['POST'])
+@require_auth
+def create_acquisition():
+    """Log the arrival of a drug/supplement (amount, cost, brand, vendor)."""
+    data = request.get_json(silent=True) or {}
+    if not data.get('acquired_date'):
+        return jsonify({'error': 'acquired_date is required'}), 400
+    acquired_date, err = _parse_iso_date(data['acquired_date'], 'acquired_date')
+    if err:
+        return err
+    expiration_date = None
+    if data.get('expiration_date'):
+        expiration_date, err = _parse_iso_date(data['expiration_date'], 'expiration_date')
+        if err:
+            return err
+
+    health_input_id = None
+    if data.get('health_input_id'):
+        try:
+            health_input_id = uuid.UUID(data['health_input_id'])
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid health_input_id'}), 400
+
+    item_name = (data.get('item_name') or '').strip()
+    if not item_name and not health_input_id:
+        return jsonify({'error': 'item_name or health_input_id is required'}), 400
+
+    for numfield in ('quantity', 'cost'):
+        if data.get(numfield) is not None:
+            try:
+                if float(data[numfield]) < 0:
+                    return jsonify({'error': f'{numfield} must be >= 0'}), 400
+            except (TypeError, ValueError):
+                return jsonify({'error': f'{numfield} must be a number'}), 400
+
+    user_id = get_user_id()
+    tenant_id = g.user.get('tenant_id', 1)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        remaining = None
+        if health_input_id:
+            cur.execute("""
+                SELECT name FROM health_inputs
+                WHERE tenant_id = %s AND user_id = %s AND id = %s
+            """, (tenant_id, user_id, health_input_id))
+            catalog = cur.fetchone()
+            if not catalog:
+                return jsonify({'error': 'Health input not found'}), 404
+            if not item_name:
+                item_name = catalog['name']
+
+        acq_id = uuid.uuid4()
+        cur.execute("""
+            INSERT INTO health_input_acquisitions
+                (tenant_id, id, user_id, health_input_id, item_name,
+                 acquired_date, quantity, unit, cost, brand, vendor,
+                 expiration_date, notes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+        """, (tenant_id, acq_id, user_id, health_input_id, item_name,
+              acquired_date, data.get('quantity'), data.get('unit'),
+              data.get('cost'), data.get('brand'), data.get('vendor'),
+              expiration_date, data.get('notes')))
+        row = cur.fetchone()
+
+        if health_input_id and data.get('quantity'):
+            cur.execute("""
+                UPDATE health_inputs
+                SET current_quantity = COALESCE(current_quantity, 0) + %s,
+                    updated_at = %s
+                WHERE tenant_id = %s AND user_id = %s AND id = %s
+                RETURNING current_quantity
+            """, (data['quantity'], datetime.now(pytz.utc), tenant_id, user_id, health_input_id))
+            updated = cur.fetchone()
+            if updated:
+                remaining = float(updated['current_quantity'])
+
+        conn.commit()
+        current_app.logger.info("POST /acquisitions: id=%s item=%s remaining=%s",
+                                str(acq_id)[:8], item_name, remaining)
+        return jsonify({'acquisition': _acq_row_to_json(row),
+                        'remaining': remaining}), 201
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+@bp.route('/acquisitions', methods=['GET'])
+@require_auth
+def get_acquisitions():
+    """Paginated acquisition history, filterable by item and date range."""
+    from utils import parse_date_range_params
+    start_date, end_date, err = parse_date_range_params()
+    if err:
+        return err
+    limit, offset = parse_pagination_params()
+
+    health_input_id = None
+    if request.args.get('health_input_id'):
+        try:
+            health_input_id = uuid.UUID(request.args['health_input_id'])
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid health_input_id'}), 400
+
+    conditions = []
+    params = [g.user.get('tenant_id', 1), get_user_id()]
+    if health_input_id:
+        conditions.append("AND health_input_id = %s")
+        params.append(health_input_id)
+    if start_date:
+        conditions.append("AND acquired_date >= %s")
+        params.append(start_date)
+    if end_date:
+        conditions.append("AND acquired_date <= %s")
+        params.append(end_date)
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(sql.SQL("""
+        SELECT count(*) OVER() AS _total, *
+        FROM health_input_acquisitions
+        WHERE tenant_id = %s AND user_id = %s
+        {extra}
+        ORDER BY acquired_date DESC, created_at DESC
+        LIMIT %s OFFSET %s
+    """).format(extra=sql.SQL(' '.join(conditions))), params + [limit, offset])
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    total = rows[0]['_total'] if rows else 0
+    entries = []
+    for row in rows:
+        row.pop('_total', None)
+        entries.append(_acq_row_to_json(row))
+    return jsonify(paginated_response(entries, total, limit, offset, key='entries'))
+
+
+@bp.route('/acquisitions/<acq_id>', methods=['PUT'])
+@require_auth
+def update_acquisition(acq_id):
+    """Update an acquisition (journal only — inventory is not re-adjusted)."""
+    data = request.get_json(silent=True) or {}
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    try:
+        acq_uuid = uuid.UUID(acq_id)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid acquisition id'}), 400
+
+    updates = {}
+    if 'item_name' in data:
+        if not (data['item_name'] or '').strip():
+            return jsonify({'error': 'item_name cannot be empty'}), 400
+        updates['item_name'] = data['item_name'].strip()
+    if 'acquired_date' in data:
+        parsed, err = _parse_iso_date(data['acquired_date'], 'acquired_date')
+        if err:
+            return err
+        updates['acquired_date'] = parsed
+    for field in _ACQ_FIELDS:
+        if field in data:
+            if field == 'expiration_date' and data[field]:
+                parsed, err = _parse_iso_date(data[field], 'expiration_date')
+                if err:
+                    return err
+                updates[field] = parsed
+            else:
+                updates[field] = data[field]
+    if not updates:
+        return jsonify({'error': 'No updatable fields provided'}), 400
+
+    tenant_id = g.user.get('tenant_id', 1)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        set_clause = ', '.join(f'{k} = %s' for k in updates)
+        cur.execute(f"""
+            UPDATE health_input_acquisitions
+            SET {set_clause}, updated_at = %s
+            WHERE tenant_id = %s AND user_id = %s AND id = %s
+            RETURNING *
+        """, list(updates.values()) + [datetime.now(pytz.utc), tenant_id, get_user_id(), acq_uuid])
+        row = cur.fetchone()
+        if not row:
+            return jsonify({'error': 'Acquisition not found'}), 404
+        conn.commit()
+        return jsonify({'acquisition': _acq_row_to_json(row)})
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+@bp.route('/acquisitions/<acq_id>', methods=['DELETE'])
+@require_auth
+def delete_acquisition(acq_id):
+    """Delete an acquisition (journal only — inventory is not re-adjusted)."""
+    try:
+        acq_uuid = uuid.UUID(acq_id)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid acquisition id'}), 400
+
+    tenant_id = g.user.get('tenant_id', 1)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            DELETE FROM health_input_acquisitions
+            WHERE tenant_id = %s AND user_id = %s AND id = %s
+            RETURNING id
+        """, (tenant_id, get_user_id(), acq_uuid))
+        deleted = cur.fetchone()
+        if not deleted:
+            return jsonify({'error': 'Acquisition not found'}), 404
+        conn.commit()
+        return jsonify({'message': 'Acquisition deleted'})
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()

@@ -738,6 +738,48 @@
                 default_unit: '', brand: '', form: '', is_active: 1, take_with_food: 0, notes: '',
                 frequent_status: null, doses_per_day: null
             });
+            const emptyArrival = () => ({
+                acquired_date: new Date().toLocaleDateString('en-CA'),
+                quantity: '', unit: '', cost: '', brand: '', vendor: '', notes: ''
+            });
+            const [arrivalFor, setArrivalFor] = useState(null);
+            const [arrivalForm, setArrivalForm] = useState(emptyArrival());
+            const [arrivals, setArrivals] = useState([]);
+            const [arrivalMsg, setArrivalMsg] = useState(null);
+
+            const openArrivals = async (input) => {
+                setArrivalFor(input);
+                setArrivalMsg(null);
+                setArrivalForm({ ...emptyArrival(), brand: input.brand || '', unit: input.default_unit || '' });
+                const resp = await fetch(`${API_BASE}/acquisitions?health_input_id=${input.id}&limit=10`);
+                const data = await resp.json();
+                setArrivals(data.entries || []);
+            };
+
+            const submitArrival = async (e) => {
+                e.preventDefault();
+                const payload = { health_input_id: arrivalFor.id };
+                for (const [k, v] of Object.entries(arrivalForm)) {
+                    if (v !== '' && v !== null) payload[k] = v;
+                }
+                const resp = await fetch(`${API_BASE}/acquisitions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (resp.ok) {
+                    const body = await resp.json();
+                    setArrivalMsg(body.remaining != null
+                        ? `Arrival logged — ${body.remaining} remaining`
+                        : 'Arrival logged');
+                    setArrivalForm({ ...emptyArrival(), brand: arrivalForm.brand, unit: arrivalForm.unit });
+                    const listResp = await fetch(`${API_BASE}/acquisitions?health_input_id=${arrivalFor.id}&limit=10`);
+                    setArrivals((await listResp.json()).entries || []);
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    setArrivalMsg(`Error: ${err.error || resp.status}`);
+                }
+            };
 
             useEffect(() => {
                 fetchInputs();
@@ -915,6 +957,67 @@
                         </div>
                     </form>
 
+                    {arrivalFor && (
+                        <div style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '14px', margin: '14px 0' }}>
+                            <h3 style={{ marginTop: 0 }}>
+                                Arrivals — {arrivalFor.name}
+                                <button type="button" onClick={() => setArrivalFor(null)}
+                                        style={{ float: 'right' }}>Close</button>
+                            </h3>
+                            {arrivalMsg && (
+                                <p style={{ padding: '8px 12px', background: '#e8f5e9',
+                                            borderRadius: '6px', color: '#1b5e20', fontWeight: 600 }}>
+                                    {arrivalMsg}
+                                </p>
+                            )}
+                            <form onSubmit={submitArrival} className="form">
+                                <div className="form-row">
+                                    <input type="date" value={arrivalForm.acquired_date} required
+                                        onChange={(e) => setArrivalForm({ ...arrivalForm, acquired_date: e.target.value })} />
+                                    <input type="number" step="any" min="0" placeholder="Quantity"
+                                        value={arrivalForm.quantity}
+                                        onChange={(e) => setArrivalForm({ ...arrivalForm, quantity: e.target.value })} />
+                                    <input type="text" placeholder="Unit (tablets, ml…)"
+                                        value={arrivalForm.unit}
+                                        onChange={(e) => setArrivalForm({ ...arrivalForm, unit: e.target.value })} />
+                                    <input type="number" step="0.01" min="0" placeholder="Cost"
+                                        value={arrivalForm.cost}
+                                        onChange={(e) => setArrivalForm({ ...arrivalForm, cost: e.target.value })} />
+                                </div>
+                                <div className="form-row">
+                                    <input type="text" placeholder="Brand"
+                                        value={arrivalForm.brand}
+                                        onChange={(e) => setArrivalForm({ ...arrivalForm, brand: e.target.value })} />
+                                    <input type="text" placeholder="Vendor (pharmacy, Amazon…)"
+                                        value={arrivalForm.vendor}
+                                        onChange={(e) => setArrivalForm({ ...arrivalForm, vendor: e.target.value })} />
+                                    <input type="text" placeholder="Notes"
+                                        value={arrivalForm.notes}
+                                        onChange={(e) => setArrivalForm({ ...arrivalForm, notes: e.target.value })} />
+                                    <button type="submit">Log Arrival</button>
+                                </div>
+                            </form>
+                            {arrivals.length > 0 && (
+                                <table>
+                                    <thead>
+                                        <tr><th>Date</th><th>Qty</th><th>Cost</th><th>Brand</th><th>Vendor</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {arrivals.map(a => (
+                                            <tr key={a.id}>
+                                                <td>{a.acquired_date}</td>
+                                                <td>{a.quantity != null ? `${a.quantity} ${a.unit || ''}` : '-'}</td>
+                                                <td>{a.cost != null ? `$${a.cost.toFixed(2)}` : '-'}</td>
+                                                <td>{a.brand || '-'}</td>
+                                                <td>{a.vendor || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    )}
+
                     <table>
                         <thead>
                             <tr>
@@ -955,6 +1058,7 @@
                                     <td>{input.is_active ? '✓ Active' : 'Inactive'}</td>
                                     <td>
                                         <button onClick={() => handleEdit(input)}>Edit</button>
+                                        <button onClick={() => openArrivals(input)}>Arrivals</button>
                                         <button onClick={() => handleDelete(input.id)}>Delete</button>
                                     </td>
                                 </tr>
@@ -3210,6 +3314,7 @@
             const [editing, setEditing] = useState(null);
             const [logType, setLogType] = useState('health-input');
             const [timestampTouched, setTimestampTouched] = useState(false);
+            const [remainingMsg, setRemainingMsg] = useState(null);
             const [formData, setFormData] = useState({
                 meal_id: '',
                 stack_id: '',
@@ -3415,6 +3520,18 @@
                     });
 
                     if (response.ok) {
+                        // Count remaining: single logs return a number,
+                        // stack logs a per-input list; null = no inventory.
+                        const body = await response.json().catch(() => ({}));
+                        if (typeof body.remaining === 'number') {
+                            setRemainingMsg(`${body.remaining} remaining`);
+                        } else if (Array.isArray(body.remaining) && body.remaining.length) {
+                            setRemainingMsg(body.remaining
+                                .map(r => `${r.input_name}: ${r.remaining} remaining`)
+                                .join(' · '));
+                        } else {
+                            setRemainingMsg(null);
+                        }
                         resetForm();
                         fetchLogHistory();
                     } else {
@@ -3666,6 +3783,18 @@
                         </div>
                     )}
 
+                    {remainingMsg && (
+                        <p style={{
+                            margin: '0 0 12px 0',
+                            padding: '8px 12px',
+                            background: '#e8f5e9',
+                            borderRadius: '6px',
+                            color: '#1b5e20',
+                            fontWeight: 600
+                        }}>
+                            Logged. {remainingMsg}
+                        </p>
+                    )}
                     <form onSubmit={handleSubmit} className="form">
                         {editing ? (
                             <>
@@ -4061,7 +4190,8 @@
                                                                 log.type === 'food' ? '#FF5722' :
                                                                     log.type === 'observation' ? '#795548' :
                                                                         log.type === 'sync' ? (log.status === 'failed' ? '#B71C1C' : '#607D8B') :
-                                                                            log.type === 'document' ? '#00838F' : '#999',
+                                                                            log.type === 'document' ? '#00838F' :
+                                                                                log.type === 'acquisition' ? '#33691E' : '#999',
                                             color: 'white'
                                         }}>
                                             {log.type === 'health_input' ? 'INPUT' :
@@ -4072,7 +4202,8 @@
                                                                 log.type === 'food' ? 'FOOD' :
                                                                     log.type === 'observation' ? 'OBS' :
                                                                         log.type === 'sync' ? 'SYNC' :
-                                                                            log.type === 'document' ? 'DOC' : log.type}
+                                                                            log.type === 'document' ? 'DOC' :
+                                                                                log.type === 'acquisition' ? 'ARR' : log.type}
                                         </span>
                                     </td>
                                     <td>{log.description}</td>
@@ -4081,7 +4212,7 @@
                                         {(log.type === 'health_input' || log.type === 'food' || log.type === 'observation') && (
                                             <button onClick={() => handleEdit(log)}>Edit</button>
                                         )}
-                                        {log.type !== 'sync' && log.type !== 'document' && (
+                                        {log.type !== 'sync' && log.type !== 'document' && log.type !== 'acquisition' && (
                                             <button onClick={() => handleDelete(log.id, log.type)}>Delete</button>
                                         )}
                                         {log.type === 'document' && log.links && (

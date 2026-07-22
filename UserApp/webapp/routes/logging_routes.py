@@ -280,6 +280,7 @@ def log_stack():
 
     # Insert log entries for each input
     inserted = 0
+    remaining = []
     for item in stack_inputs:
         log_id = uuid.uuid4()
         try:
@@ -288,6 +289,23 @@ def log_stack():
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (tenant_id, log_id, user_id, timestamp, item['health_input_id'], item['dosage_override'], stack_uuid, timestamp))
             inserted += 1
+
+            # Count remaining: one dose per input; NULL inventory stays NULL
+            # (arrivals via /acquisitions start the counter).
+            cur.execute("""
+                UPDATE health_inputs hi
+                SET current_quantity = GREATEST(hi.current_quantity - 1, 0)
+                WHERE hi.tenant_id = %s AND hi.user_id = %s AND hi.id = %s
+                  AND hi.current_quantity IS NOT NULL
+                RETURNING hi.name, hi.current_quantity
+            """, (tenant_id, user_id, item['health_input_id']))
+            decremented = cur.fetchone()
+            if decremented:
+                remaining.append({
+                    'input_id': str(item['health_input_id']),
+                    'input_name': decremented['name'],
+                    'remaining': float(decremented['current_quantity']),
+                })
 
             if is_level(DEBUG):
                 current_app.logger.debug(
@@ -315,7 +333,8 @@ def log_stack():
         'message': 'Stack logged successfully',
         'stack_id': str(stack_uuid),
         'inputs_found': inputs_count,
-        'inputs_logged': inserted
+        'inputs_logged': inserted,
+        'remaining': remaining
     }), 201
 
 
@@ -365,6 +384,22 @@ def log_health_input():
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (tenant_id, log_id, user_id, timestamp, input_id, dosage_taken, timestamp))
 
+        # Count remaining: one dose logged = one unit off the item's inventory.
+        # Items with no inventory recorded (current_quantity NULL) stay NULL —
+        # arrivals logged via /acquisitions start the counter.
+        remaining = None
+        if input_id:
+            cur.execute("""
+                UPDATE health_inputs
+                SET current_quantity = GREATEST(current_quantity - 1, 0)
+                WHERE tenant_id = %s AND user_id = %s AND id = %s
+                  AND current_quantity IS NOT NULL
+                RETURNING current_quantity
+            """, (tenant_id, user_id, input_id))
+            decremented = cur.fetchone()
+            if decremented:
+                remaining = float(decremented['current_quantity'])
+
         conn.commit()
         current_app.logger.info(
             "log-health-input: logged_id=%s input_id=%s freeform=%s",
@@ -387,7 +422,8 @@ def log_health_input():
 
     analytics.capture('health_input_logged', {'log_id': str(log_id)})
 
-    return jsonify({'id': str(log_id), 'message': 'Health input logged successfully'}), 201
+    return jsonify({'id': str(log_id), 'message': 'Health input logged successfully',
+                    'remaining': remaining}), 201
 
 
 @bp.route('/log-food-item', methods=['POST'])
@@ -597,7 +633,7 @@ def get_all_logs():
     input_id) and `sources_truncated` — sources whose per-source LIMIT
     filled up, meaning the window may hold more rows than were fetched.
 
-    Implementation runs eleven per-source SELECTs (LIMIT 100 each, 50 for
+    Implementation runs twelve per-source SELECTs (LIMIT 100 each, 50 for
     sleep/nutrition), merges in Python, and slices the requested page.
     A UNION-as-CTE rewrite is deferred; see UserAPIPagination plan Option A.
     """
@@ -618,10 +654,11 @@ def get_all_logs():
         'observation': {'observations'},
         'sync': {'sync'},
         'document': {'documents'},
+        'acquisition': {'acquisitions'},
     }
     ALL_SOURCES = {'health_input_log', 'blood_pressure', 'temperature', 'weight',
                    'blood_glucose', 'sleep_nutrition', 'medication_metrics', 'food',
-                   'observations', 'sync', 'documents'}
+                   'observations', 'sync', 'documents', 'acquisitions'}
     # Unknown / unmappable kinds run everything and are reported as not
     # applied — honesty over rejection, the client enum will drift before
     # this route does.
@@ -1091,6 +1128,45 @@ def get_all_logs():
             'filename': log['filename'],
             'mime_type': log['mime_type'],
             'links': _doc_links(str(log['id'])),
+        })
+
+    # Get acquisition arrivals — the acquisition row IS the event, same
+    # pattern as documents. acquired_date is a DATE; midnight suffix keeps
+    # the merged-feed timestamp sort stable.
+    acq_logs = []
+    if 'acquisitions' in sources:
+        acq_date_sql, acq_date_params = date_filter(sql.Identifier('acquired_date'))
+        cur.execute(sql.SQL("""
+            SELECT id, health_input_id, item_name, acquired_date, quantity,
+                   unit, brand, vendor
+            FROM health_input_acquisitions
+            WHERE tenant_id = %s AND user_id = %s
+            {date_filter}
+            ORDER BY acquired_date DESC, created_at DESC
+            LIMIT 100
+        """).format(date_filter=acq_date_sql), [tenant_id, user_id] + acq_date_params)
+        acq_logs = cur.fetchall()
+        if len(acq_logs) == 100:
+            sources_truncated.append('acquisitions')
+    for log in acq_logs:
+        detail_bits = []
+        if log['quantity'] is not None:
+            detail_bits.append(f"{float(log['quantity']):g} {log['unit'] or 'units'}")
+        if log['brand']:
+            detail_bits.append(log['brand'])
+        detail = f" ({', '.join(detail_bits)})" if detail_bits else ''
+        all_logs.append({
+            'id': str(log['id']),
+            'timestamp': f"{log['acquired_date'].isoformat()}T00:00:00+00:00",
+            'type': 'acquisition',
+            'description': f"Arrived: {log['item_name']}{detail}",
+            'stack': None,
+            'input_id': str(log['health_input_id']) if log['health_input_id'] else None,
+            'item_name': log['item_name'],
+            'quantity': float(log['quantity']) if log['quantity'] is not None else None,
+            'unit': log['unit'],
+            'brand': log['brand'],
+            'vendor': log['vendor'],
         })
 
     cur.close()
