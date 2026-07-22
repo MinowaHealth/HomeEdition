@@ -55,6 +55,12 @@ class TestSession:
         data = resp.get_json()
         assert data.get('email') == 'test@example.com'
 
+    def test_session_includes_home_timezone(self, client, auth_headers):
+        """UserMCP tools/_time.home_tz reads this key — dropping it silently
+        UTC-breaks every MCP time tool (found live 2026-07-16)."""
+        resp = client.get('/api/v1/session', headers=auth_headers)
+        assert resp.get_json().get('home_timezone') == 'America/Los_Angeles'
+
     def test_get_session_unauthenticated(self, client):
         with patch('utils.auth.get_session', return_value=None):
             resp = client.get(

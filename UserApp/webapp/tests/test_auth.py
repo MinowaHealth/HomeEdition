@@ -150,6 +150,7 @@ class TestGetSession:
             'is_active': True,
             'is_developer': False,
             'home_timezone': 'UTC',
+            'unit_system': None,
             'created_at': datetime.now(timezone.utc),
         }
         row.update(overrides)
@@ -828,13 +829,15 @@ class TestLookupApiKey:
         conn, cur = _mock_conn(fetchone={
             'tenant_id': 1, 'key_id': 'kid', 'user_id': 'uid',
             'token_hash': 'h', 'email': 'a@b.c', 'display_name': 'A',
-            'is_active': True, 'is_developer': True,
+            'is_active': True, 'is_developer': True, 'unit_system': 'metric',
+            'home_timezone': 'America/Chicago',
         })
         with patch('auth.get_admin_connection', return_value=conn):
             out = auth.lookup_api_key('hbk_' + 'a' * 32)
         assert out is not None
         assert out['email'] == 'a@b.c'
         assert out['is_developer'] is True
+        assert out['home_timezone'] == 'America/Chicago'
         assert out['session_id'] is None
         assert out['api_key_id'] == 'kid'
         # last_used_at update attempted
@@ -850,7 +853,8 @@ class TestLookupApiKey:
         cur.fetchone.return_value = {
             'tenant_id': 1, 'key_id': 'kid', 'user_id': 'uid',
             'token_hash': 'h', 'email': 'a@b.c', 'display_name': 'A',
-            'is_active': True, 'is_developer': False,
+            'is_active': True, 'is_developer': False, 'unit_system': None,
+            'home_timezone': None,
         }
 
         def _execute(sql, *args, **kwargs):
@@ -900,7 +904,8 @@ class TestCreateThenLookupApiKeyRoundtrip:
                         'tenant_id': 1, 'key_id': 'kid', 'user_id': user_id,
                         'token_hash': token_hash, 'email': 'a@b.c',
                         'display_name': 'A', 'is_active': True,
-                        'is_developer': False,
+                        'is_developer': False, 'unit_system': 'imperial',
+                        'home_timezone': None,
                     }
                 else:
                     lookup_cur.fetchone.return_value = None

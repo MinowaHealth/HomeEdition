@@ -2358,9 +2358,15 @@ Returns authenticated user info. See [Authentication.md](Authentication.md).
   "tenant_id": 1,
   "database": "healthv10",
   "created_at": "2026-01-15T10:30:00+00:00",
-  "is_developer": false
+  "is_developer": false,
+  "unit_system": "imperial",
+  "home_timezone": "America/Los_Angeles"
 }
 ```
+
+`home_timezone` is the profile's IANA timezone (null when unset). UserMCP's
+time tools (`get_current_time`, `date_math`, local-day window anchoring) read
+it from this endpoint and fall back to UTC when null.
 
 ### GET /api/v1/is-developer
 

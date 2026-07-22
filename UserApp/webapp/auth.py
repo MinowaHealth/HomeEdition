@@ -843,7 +843,8 @@ def lookup_api_key(bearer_token: str | None) -> dict[str, Any] | None:
         # Look up by prefix + hash, join users for active check
         cur.execute("""
             SELECT t.tenant_id, t.id as key_id, t.user_id, t.token_hash,
-                   u.email, u.display_name, u.is_active, u.is_developer, u.unit_system
+                   u.email, u.display_name, u.is_active, u.is_developer, u.unit_system,
+                   u.home_timezone
             FROM api_tokens t
             JOIN users u ON t.tenant_id = u.tenant_id AND t.user_id = u.id
             WHERE t.key_prefix = %s
@@ -877,6 +878,7 @@ def lookup_api_key(bearer_token: str | None) -> dict[str, Any] | None:
             'username': row['email'],
             'email': row['email'],
             'display_name': row['display_name'],
+            'home_timezone': row['home_timezone'],
             'unit_system': row['unit_system'] or 'imperial',
             'is_developer': row.get('is_developer', False),
             'database_name': 'healthv10'

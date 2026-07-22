@@ -405,6 +405,7 @@ def get_session_info():
         'created_at': g.user.get('created_at'),
         'is_developer': g.user.get('is_developer', False),
         'unit_system': g.user.get('unit_system', 'imperial'),
+        'home_timezone': g.user.get('home_timezone'),
     })
 
 

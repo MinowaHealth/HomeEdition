@@ -1316,6 +1316,13 @@ components:
           type: string
           enum: [imperial, metric]
           description: Display unit preference for weight, temperature, and blood glucose.
+        home_timezone:
+          type:
+            - string
+            - "null"
+          description: >-
+            IANA timezone name from the user's profile (e.g. America/Los_Angeles).
+            Null when unset; clients (incl. UserMCP time tools) fall back to UTC.
 
     ChangePasswordRequest:
       type: object
