@@ -264,6 +264,59 @@ async def test_call_tool_send_feedback_roundtrip(live_server):
     assert "data" in payload or "success" in payload, f"unexpected shape: {payload}"
 
 
+def _synth_value(name: str, spec: dict):
+    """Minimal plausible value for a required inputSchema property."""
+    if "enum" in spec:
+        return spec["enum"][0]
+    t = spec.get("type", "string")
+    if t == "integer" or t == "number":
+        return 1
+    if t == "boolean":
+        return False
+    if t == "array":
+        return []
+    if t == "object":
+        return {}
+    lname = name.lower()
+    if "timestamp" in lname or "date" in lname or "instant" in lname or lname in ("from", "to"):
+        return "2026-05-10T12:00:00Z"
+    if lname == "id" or lname.endswith("_id"):
+        return "00000000-0000-0000-0000-000000000001"
+    return "test"
+
+
+def _minimal_args(tool) -> dict:
+    props = tool.inputSchema.get("properties", {})
+    return {
+        name: _synth_value(name, props.get(name, {}))
+        for name in tool.inputSchema.get("required", [])
+    }
+
+
+async def test_call_tool_every_registered_tool_executes(live_server):
+    """Call EVERY registered tool over the wire with minimal required args.
+
+    This is the change-safety sweep: any tool whose handler raises against
+    the canned UserApp stub — including tools added after this test was
+    written — fails here, even if no dedicated handler test exists yet.
+    Args are synthesized from each tool's own inputSchema, so new required
+    fields are picked up automatically.
+    """
+    failures = []
+    async with mcp_session(live_server) as session:
+        listed = (await session.list_tools()).tools
+        assert listed, "registry is empty"
+        for tool in listed:
+            result = await session.call_tool(tool.name, _minimal_args(tool))
+            text = result.content[0].text if result.content else ""
+            try:
+                payload = json.loads(text)
+                assert isinstance(payload, dict)
+            except (json.JSONDecodeError, AssertionError):
+                failures.append(f"{tool.name}: non-envelope response: {text[:200]}")
+    assert not failures, "\n".join(failures)
+
+
 async def test_call_tool_unknown_returns_error_not_crash(live_server):
     """Unknown tool names must surface as errors, not kill the session."""
     async with mcp_session(live_server) as session:
