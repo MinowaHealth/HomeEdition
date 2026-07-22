@@ -159,10 +159,17 @@ def test_adherence_sql_filters_pinned():
     assert "'start_date', tf.start_date" in src
 
 
-def test_lab_results_latest_ordering_pinned():
-    """Postgres DESC sorts NULLs first, so without NULLS LAST a NULL-dated
-    duplicate shadows the dated draw in every latest-per-test group
-    (found during the Bug-4 backfill: 37 dated codes, only 3 surfaced)."""
+def test_lab_results_group_coalesce_pinned():
+    """minowa-mcp-bug-report.md Bug 4. Three SQL behaviors the mocked-cursor
+    tests can't exercise but that a refactor could silently drop:
+      - NULLS LAST so a NULL-dated row can't shadow a dated sibling
+      - name/date coalesced across the LOINC group (rn=1 alone lands on a
+        NULL-name sibling for 66/67 of this account's groups)
+      - received_date exposed as a labeled fallback for dateless draws
+    """
     from routes import analytics
     src = inspect.getsource(analytics.get_lab_results)
-    assert src.count("effective_date DESC NULLS LAST") == 2
+    assert "effective_date DESC NULLS LAST" in src
+    assert "grp_name" in src and "grp_date" in src
+    assert "MAX(display_name) FILTER" in src
+    assert "received_date" in src

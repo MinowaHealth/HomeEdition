@@ -428,24 +428,52 @@ def get_lab_results():
     user_id = get_user_id()
 
     try:
+        # A single test may have several observation rows across imports; some
+        # rows carry a name/date, siblings in the same LOINC group do not
+        # (raw_fhir was dropped on import — minowa-mcp-bug-report.md Bug 4).
+        # rn=1 gives the latest reading's *value*; name and dates are pulled
+        # from the whole group so a NULL on the latest row borrows from a
+        # sibling. received_date (import-received, from the parent clinical
+        # record) is a labeled fallback when no clinical draw date survived —
+        # it is NOT relabeled as the collection date.
         cur.execute("""
-            WITH ranked AS (
+            WITH obs AS (
                 SELECT
-                    id, loinc_code, display_name, effective_date,
-                    value_quantity, value_unit, value_string,
-                    reference_range, interpretation,
+                    lo.id, lo.loinc_code, lo.display_name, lo.effective_date,
+                    lo.value_quantity, lo.value_unit, lo.value_string,
+                    lo.reference_range, lo.interpretation,
+                    cr.received_date,
+                    COALESCE(lo.loinc_code, lo.display_name) AS grp
+                FROM hkit_lab_observations lo
+                LEFT JOIN hkit_clinical_records cr
+                    ON cr.tenant_id = lo.tenant_id
+                   AND cr.id = lo.clinical_record_id
+                WHERE lo.user_id = %s AND lo.value_quantity IS NOT NULL
+            ),
+            ranked AS (
+                SELECT *,
                     ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(loinc_code, display_name)
+                        PARTITION BY grp
                         -- NULLS LAST: DESC alone sorts NULLs first, so a
-                        -- NULL-dated duplicate would shadow the dated draw
-                        -- in every group (minowa-mcp-bug-report.md Bug 4)
-                        ORDER BY effective_date DESC NULLS LAST
-                    ) as rn
-                FROM hkit_lab_observations
-                WHERE user_id = %s AND value_quantity IS NOT NULL
+                        -- NULL-dated row would shadow a dated sibling.
+                        ORDER BY effective_date DESC NULLS LAST, id DESC
+                    ) AS rn,
+                    MAX(display_name) FILTER (
+                        WHERE display_name IS NOT NULL
+                          AND display_name <> COALESCE(loinc_code, '')
+                    ) OVER (PARTITION BY grp) AS grp_name,
+                    MAX(effective_date) OVER (PARTITION BY grp) AS grp_date,
+                    MAX(received_date) OVER (PARTITION BY grp) AS grp_received
+                FROM obs
             )
-            SELECT * FROM ranked WHERE rn = 1
-            ORDER BY effective_date DESC NULLS LAST
+            SELECT id, loinc_code,
+                   COALESCE(grp_name, display_name, loinc_code) AS display_name,
+                   COALESCE(grp_date, effective_date) AS effective_date,
+                   grp_received AS received_date,
+                   value_quantity, value_unit, value_string,
+                   reference_range, interpretation
+            FROM ranked WHERE rn = 1
+            ORDER BY COALESCE(grp_date, grp_received) DESC NULLS LAST
         """, (user_id,))
 
         results = cur.fetchall()
@@ -460,7 +488,10 @@ def get_lab_results():
                 'unit': r['value_unit'] or '',
                 'reference_range': r['reference_range'],
                 'interpretation': r['interpretation'],
-                'date': r['effective_date'].isoformat() if r['effective_date'] else None
+                'date': r['effective_date'].isoformat() if r['effective_date'] else None,
+                # Labeled fallback — the date the record was imported, shown
+                # only so a dateless lab still anchors in time. Not the draw date.
+                'received_date': r['received_date'].isoformat() if r['received_date'] else None,
             })
 
         return jsonify({

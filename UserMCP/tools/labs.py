@@ -73,14 +73,24 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
     # historical sample today. When multi-history lands this reshapes
     # naturally: append rather than overwrite.
     groups = []
+    undated = 0
     for r in rows:
         test_key = r.get("loinc_code") or r.get("name") or "unknown"
+        date = r.get("date")
+        received = r.get("received_date")
+        if not date:
+            undated += 1
         groups.append({
             "test": test_key,
             "name": r.get("name") or test_key,
             "loinc_code": r.get("loinc_code"),
             "latest": {
-                "date": r.get("date"),
+                "date": date,
+                # Import-received date, present only when the clinical draw
+                # date didn't survive import. Labeled distinctly so the caller
+                # never presents it as the collection date (Bug 4).
+                "received_date": received,
+                "date_is_received_fallback": bool(received and not date),
                 "value": r.get("value"),
                 "unit": r.get("unit"),
                 "reference_range": r.get("reference_range"),
@@ -91,12 +101,21 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
         })
 
     sources = await fetch_sources(client)
+    gaps = []
+    if not groups:
+        gaps.append({"reason": "no lab results recorded"})
+    elif undated:
+        gaps.append({"reason": (
+            f"{undated} of {len(groups)} tests have no clinical draw date "
+            "(not captured at import); latest.received_date shows the "
+            "import date as a fallback where available"
+        )})
     coverage = {
         "counts": {
             "rows": len(groups),
             "sources_represented": ["healthkit"] if groups else [],
         },
-        "gaps": [] if groups else [{"reason": "no lab results recorded"}],
+        "gaps": gaps,
         "truncated": False,
     }
 

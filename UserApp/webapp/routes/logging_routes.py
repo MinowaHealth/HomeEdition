@@ -1685,6 +1685,8 @@ def get_adherence():
         cur.execute(sql.SQL("""
             SELECT hi.id, hi.name, hi.input_type, hi.default_unit,
                    hi.doses_per_day, hi.timeframe_id AS direct_timeframe_id,
+                   string_agg(DISTINCT s.name, ', ')
+                       FILTER (WHERE s.id IS NOT NULL) AS stack_names,
                    COALESCE(
                        json_agg(
                            DISTINCT jsonb_build_object(
@@ -1722,13 +1724,21 @@ def get_adherence():
         # doses_per_day (explicit) takes precedence; NULL falls back to the
         # timeframe schedule already joined above. NULL with no timeframes —
         # or timeframes that never fire in the window — stays unspecified.
+        def _unspec(r):
+            # in_stacks explains WHY there's no schedule: an input can sit in
+            # a named stack ("Thrice Daily MCAS") whose cadence lives only in
+            # the free-text name, not in a timeframe row — so it's genuinely
+            # unschedulable here (Bug 3b). Surfacing the stack name lets the
+            # caller say "logged but unscheduled" instead of guessing.
+            return {'input_id': str(r['id']), 'name': r['name'],
+                    'in_stacks': r.get('stack_names')}
+
         scheduled_rows = [(r, 'doses_per_day') for r in input_rows
                           if r['doses_per_day'] and r['doses_per_day'] > 0]
         scheduled_rows += [(r, 'timeframes') for r in input_rows
                            if r['doses_per_day'] is None and r['timeframes']]
         excluded_prn = [{'input_id': str(r['id']), 'name': r['name']} for r in input_rows if r['doses_per_day'] == -1]
-        excluded_unspecified = [{'input_id': str(r['id']), 'name': r['name']}
-                                for r in input_rows
+        excluded_unspecified = [_unspec(r) for r in input_rows
                                 if r['doses_per_day'] is None and not r['timeframes']]
 
         window_days = [start_date + timedelta(days=i) for i in range(days)]
@@ -1772,24 +1782,31 @@ def get_adherence():
                 if scheduled_doses == 0:
                     # Timeframes exist but never fire in this window (e.g.
                     # weekly with no anchor) — no derivable schedule.
-                    excluded_unspecified.append({'input_id': str(row['id']), 'name': row['name']})
+                    excluded_unspecified.append(_unspec(row))
                     continue
 
                 logged_doses = logs_by_input.get(row['id'], 0)
-                pct = round(min(100.0, (logged_doses / scheduled_doses) * 100.0), 1) if scheduled_doses else 0.0
 
+                # Adherence is scored per-day, capping each day's logged doses
+                # at that day's expected count. Summing raw logged and dividing
+                # by scheduled lets a doubled-up day paper over a missed day —
+                # kava kava showed 100% with 14 missed days (Bug 3a). logged_doses
+                # stays the raw total for transparency; adherent_doses drives pct.
+                adherent_doses = 0
                 missed_windows = []
                 for d in window_days:
                     expected = expected_by_day[d]
                     if expected <= 0:
                         continue
                     logged_that_day = logs_by_input_day.get((row['id'], d), 0)
+                    adherent_doses += min(logged_that_day, expected)
                     if logged_that_day < expected:
                         missed_windows.append({
                             'date': d.isoformat(),
                             'expected': expected,
                             'logged': logged_that_day,
                         })
+                pct = round((adherent_doses / scheduled_doses) * 100.0, 1) if scheduled_doses else 0.0
 
                 results.append({
                     'input_id': str(row['id']),
@@ -1801,6 +1818,7 @@ def get_adherence():
                     'schedule_source': schedule_source,
                     'scheduled_doses': scheduled_doses,
                     'logged_doses': logged_doses,
+                    'adherent_doses': adherent_doses,
                     'pct_adherence': pct,
                     'missed_windows': missed_windows,
                     'timeframes': row['timeframes'] or [],

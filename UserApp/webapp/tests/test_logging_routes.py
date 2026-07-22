@@ -1794,6 +1794,51 @@ class TestGetAdherence:
         body = resp.get_json()
         assert body['inputs'][0]['scheduled_doses'] == 56
 
+    def test_doubled_doses_do_not_offset_missed_days(self, client, mock_db, auth_headers):
+        """minowa-mcp-bug-report.md Bug 3a: pct must cap each day's logged
+        doses at that day's expected count. A user who doubles up on some days
+        and skips others must NOT read as 100% adherent."""
+        from datetime import date
+        conn, cur = mock_db
+        row = self._tf_input(name='kava kava', timeframes=[self._tf('daily')])
+        # 4-day window, 1 dose/day expected. Take 2 on the first two days,
+        # 0 on the last two: raw total = 4 == scheduled 4 (the old bug scored
+        # this 100%), but 2 days were missed.
+        days = [date(2026, 6, 1), date(2026, 6, 2)]
+        cur.fetchall.side_effect = [
+            [row],
+            [{'input_id': row['id'], 'log_date': d, 'log_count': 2} for d in days],
+        ]
+
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-04',
+            headers=auth_headers,
+        )
+        entry = resp.get_json()['inputs'][0]
+        assert entry['scheduled_doses'] == 4
+        assert entry['logged_doses'] == 4      # raw total preserved
+        assert entry['adherent_doses'] == 2    # capped per-day
+        assert entry['pct_adherence'] == 50.0
+        assert len(entry['missed_windows']) == 2
+
+    def test_excluded_unspecified_surfaces_stack_name(self, client, mock_db, auth_headers):
+        """Bug 3b: an input in a named stack whose cadence lives only in the
+        stack name (no timeframe row) is unschedulable, but the response must
+        name the stack so the caller knows why it was excluded."""
+        conn, cur = mock_db
+        row = self._tf_input(name='Allegra', timeframes=[])
+        row['stack_names'] = 'Thrice Daily MCAS'
+        cur.fetchall.return_value = [row]
+
+        resp = client.get(
+            '/api/v1/adherence?start_date=2026-06-01&end_date=2026-06-28',
+            headers=auth_headers,
+        )
+        excluded = resp.get_json()['excluded_unspecified']
+        assert len(excluded) == 1
+        assert excluded[0]['name'] == 'Allegra'
+        assert excluded[0]['in_stacks'] == 'Thrice Daily MCAS'
+
     def test_db_error_returns_500(self, client, mock_db, auth_headers):
         conn, cur = mock_db
         cur.execute.side_effect = Exception('boom')
