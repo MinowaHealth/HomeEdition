@@ -4,7 +4,7 @@ External Integrations routes.
 Blueprint for HealthKit and Garmin Connect integrations.
 """
 from flask import Blueprint, request, jsonify, g, current_app
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
 import tempfile
 import uuid
@@ -19,6 +19,7 @@ from utils import (
     get_user_db_connection,
     get_user_id,
     get_user_timezone,
+    local_to_utc,
     parse_pagination_params,
     paginated_response,
 )
@@ -372,11 +373,14 @@ def garmin_sync():
     sync_to = data.get('to_date')
 
     if not sync_from:
+        # Always cover at least the last 90 days so gaps self-heal (e.g. the months
+        # when sync was broken). If last_sync is older than 90 days, reach further back.
+        # ISO date strings (YYYY-MM-DD) compare chronologically, so min() = earlier date.
+        window_start = (datetime.now(get_user_timezone()).date() - timedelta(days=90)).isoformat()
         if creds['last_sync']:
-            sync_from = creds['last_sync'].date().isoformat()
+            sync_from = min(creds['last_sync'].date().isoformat(), window_start)
         else:
-            user_today = datetime.now(get_user_timezone()).date()
-            sync_from = (user_today - timedelta(days=30)).isoformat()
+            sync_from = window_start
 
     if not sync_to:
         sync_to = datetime.now(get_user_timezone()).date().isoformat()
@@ -490,6 +494,126 @@ def list_garmin_jobs():
         })
 
     return jsonify(paginated_response(result, total, limit, offset, key='entries'))
+
+
+# Garmin per-minute detail window (± this many minutes around the target)
+GARMIN_DETAIL_WINDOW_MINUTES = 60
+
+
+@bp.route('/garmin/minute-detail', methods=['GET'])
+@require_auth
+def garmin_minute_detail():
+    """Per-minute Garmin HR / respiration / stress around a point in time.
+
+    Query param:
+        at (required) — ISO 8601 instant. Offset-aware strings are honored;
+            naive strings are read in the user's home timezone (app convention).
+
+    Returns one row per minute in [at − 60min, at + 60min] that has at least
+    one sample in any series, each minute carrying heart_rate, respiratory_rate,
+    and stress (null where that series had no sample). When `at` is recent the
+    forward half of the window may not exist yet — the response returns only
+    elapsed minutes and sets `truncated_future`.
+
+    Minimum-Necessary (§164.502(b)): the ±60-minute bound is the minimization —
+    only the window around the caller-specified event is returned, keyed by the
+    RLS session identity (no user_id in the WHERE; tenant/user enforced by RLS).
+    """
+    at_str = request.args.get('at')
+    if not at_str:
+        return jsonify({'error': 'at (ISO 8601 timestamp) is required'}), 400
+    try:
+        at_utc = local_to_utc(at_str)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid at timestamp; use ISO 8601'}), 400
+
+    window = timedelta(minutes=GARMIN_DETAIL_WINDOW_MINUTES)
+    start = at_utc - window
+    end = at_utc + window
+    now = datetime.now(timezone.utc)
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # Each series is RLS-filtered; bound by timestamp only. Stress uses
+        # negative sentinels for "no reading" (see analytics heatmap) — drop them.
+        cur.execute("""
+            SELECT timestamp, heart_rate FROM garm_hr
+            WHERE timestamp >= %s AND timestamp <= %s AND heart_rate IS NOT NULL
+            ORDER BY timestamp
+        """, (start, end))
+        hr_rows = cur.fetchall()
+        cur.execute("""
+            SELECT timestamp, respiratory_rate FROM garm_rr
+            WHERE timestamp >= %s AND timestamp <= %s AND respiratory_rate IS NOT NULL
+            ORDER BY timestamp
+        """, (start, end))
+        rr_rows = cur.fetchall()
+        cur.execute("""
+            SELECT timestamp, garm_stress FROM garm_stress
+            WHERE timestamp >= %s AND timestamp <= %s AND garm_stress >= 0
+            ORDER BY timestamp
+        """, (start, end))
+        stress_rows = cur.fetchall()
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill('/garmin/minute-detail', str(g.user.get('user_id', 'anon')))
+            return jsonify({'error': 'Query took too long and was cancelled', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("garmin/minute-detail FAILED: %s", e)
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+    # Merge by minute. Garmin samples HR ~1/min, stress ~1/3min, RR sparsely;
+    # a minute rarely holds >1 sample of a series, but average if it does.
+    def _floor(ts):
+        if ts.tzinfo is None:
+            ts = pytz.UTC.localize(ts)
+        return ts.astimezone(timezone.utc).replace(second=0, microsecond=0)
+
+    buckets: dict = {}
+    for r in hr_rows:
+        buckets.setdefault(_floor(r['timestamp']), {}).setdefault('hr', []).append(r['heart_rate'])
+    for r in rr_rows:
+        buckets.setdefault(_floor(r['timestamp']), {}).setdefault('rr', []).append(float(r['respiratory_rate']))
+    for r in stress_rows:
+        buckets.setdefault(_floor(r['timestamp']), {}).setdefault('st', []).append(r['garm_stress'])
+
+    def _avg(vals):
+        return sum(vals) / len(vals) if vals else None
+
+    samples = []
+    for minute in sorted(buckets):
+        b = buckets[minute]
+        hr = _avg(b.get('hr'))
+        rr = _avg(b.get('rr'))
+        st = _avg(b.get('st'))
+        samples.append({
+            'minute': minute.isoformat(),
+            'heart_rate': round(hr) if hr is not None else None,
+            'respiratory_rate': round(rr, 1) if rr is not None else None,
+            'stress': round(st) if st is not None else None,
+        })
+
+    return jsonify({
+        'target': at_utc.isoformat(),
+        'window': {
+            'from': start.isoformat(),
+            'to': end.isoformat(),
+            'minutes': GARMIN_DETAIL_WINDOW_MINUTES * 2 + 1,
+        },
+        'samples': samples,
+        'counts': {
+            'heart_rate': len(hr_rows),
+            'respiratory_rate': len(rr_rows),
+            'stress': len(stress_rows),
+            'minutes': len(samples),
+        },
+        # Recent target: the forward half of the window is in the future, so
+        # only elapsed minutes could be returned.
+        'truncated_future': end > now,
+    })
 
 
 # ==================== DATA CORRECTIONS ====================

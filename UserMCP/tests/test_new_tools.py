@@ -214,6 +214,88 @@ async def test_labs_groups_results_by_test():
 
 
 # ---------------------------------------------------------------------------
+# garmin_detail (get_garmin_minute_detail)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_garmin_detail_passes_at_and_wraps_samples():
+    from tools.garmin_detail import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {
+            "target": "2026-07-13T18:00:00+00:00",
+            "window": {"from": "2026-07-13T17:00:00+00:00",
+                       "to": "2026-07-13T19:00:00+00:00", "minutes": 121},
+            "samples": [
+                {"minute": "2026-07-13T18:00:00+00:00",
+                 "heart_rate": 70, "respiratory_rate": 14.2, "stress": None},
+            ],
+            "counts": {"heart_rate": 2, "respiratory_rate": 1,
+                       "stress": 0, "minutes": 1},
+            "truncated_future": False,
+        }
+
+    client = _make_client({"/garmin/minute-detail": route})
+    env = await handle({"at": "2026-07-13T18:00:00Z"}, client)
+
+    _assert_envelope(env)
+    assert captured["params"] == {"at": "2026-07-13T18:00:00Z"}
+    assert len(env["data"]["samples"]) == 1
+    assert env["coverage"]["window"]["minutes"] == 121
+    assert env["coverage"]["counts"]["heart_rate"] == 2
+    assert env["coverage"]["gaps"] == []
+
+
+@pytest.mark.asyncio
+async def test_garmin_detail_requires_at():
+    from tools.garmin_detail import handle
+
+    client = _make_client({})  # route must never be called
+    env = await handle({}, client)
+
+    assert env["data"]["samples"] == []
+    assert any("required" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+@pytest.mark.asyncio
+async def test_garmin_detail_empty_window_gaps():
+    from tools.garmin_detail import handle
+
+    client = _make_client({"/garmin/minute-detail": {
+        "target": "2020-01-01T12:00:00+00:00",
+        "window": {"from": "...", "to": "...", "minutes": 121},
+        "samples": [], "counts": {"minutes": 0}, "truncated_future": False,
+    }})
+    env = await handle({"at": "2020-01-01T12:00:00Z"}, client)
+
+    reasons = " ".join(g["reason"] for g in env["coverage"]["gaps"])
+    assert "no Garmin per-minute data" in reasons
+    assert env["coverage"]["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_garmin_detail_recent_target_truncated():
+    from tools.garmin_detail import handle
+
+    client = _make_client({"/garmin/minute-detail": {
+        "target": "2026-07-13T18:00:00+00:00",
+        "window": {"from": "...", "to": "...", "minutes": 121},
+        "samples": [{"minute": "2026-07-13T17:30:00+00:00",
+                     "heart_rate": 66, "respiratory_rate": None, "stress": 20}],
+        "counts": {"heart_rate": 1, "respiratory_rate": 0,
+                   "stress": 1, "minutes": 1},
+        "truncated_future": True,
+    }})
+    env = await handle({"at": "2026-07-13T18:00:00Z"}, client)
+
+    assert env["coverage"]["truncated"] is True
+    assert any("into the future" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+# ---------------------------------------------------------------------------
 # wearables
 # ---------------------------------------------------------------------------
 
