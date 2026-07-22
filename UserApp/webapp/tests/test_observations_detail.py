@@ -89,6 +89,61 @@ class TestObservationsDetail:
         assert obs['source_type'] == 'text'
         assert obs['tags'] == []
 
+    def test_window_minutes_widens(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = []
+        resp = client.get(
+            '/api/v1/observations/detail?at=2026-07-12T17:30:00Z&window_minutes=180',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        at = _dt(2026, 7, 12, 17, 30)
+        call = [c for c in cur.execute.call_args_list if len(c.args) == 2][-1]
+        from conftest import TEST_USER_ID
+        assert tuple(call.args[1]) == (
+            1, TEST_USER_ID,
+            at - timedelta(minutes=180), at + timedelta(minutes=180))
+        assert resp.get_json()['window']['minutes'] == 361
+
+    def test_window_minutes_out_of_range_400(self, client, mock_db, auth_headers):
+        resp = client.get(
+            '/api/v1/observations/detail?at=2026-07-12T17:30:00Z&window_minutes=721',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
+    def test_from_to_mode_null_target_and_offset(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = [
+            _row(_dt(2026, 7, 12, 3, 0), 'woke up sweating'),
+        ]
+        resp = client.get(
+            '/api/v1/observations/detail'
+            '?from=2026-07-12T00:00:00Z&to=2026-07-12T06:00:00Z',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        assert body['target'] is None
+        assert body['window']['from'] == _dt(2026, 7, 12, 0, 0).isoformat()
+        assert body['window']['to'] == _dt(2026, 7, 12, 6, 0).isoformat()
+        assert body['window']['minutes'] == 361
+        assert body['observations'][0]['seconds_from_target'] is None
+
+    def test_from_without_to_400(self, client, mock_db, auth_headers):
+        resp = client.get(
+            '/api/v1/observations/detail?from=2026-07-12T00:00:00Z',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
+    def test_from_to_span_over_24h_400(self, client, mock_db, auth_headers):
+        resp = client.get(
+            '/api/v1/observations/detail'
+            '?from=2026-07-10T00:00:00Z&to=2026-07-12T00:00:01Z',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
     def test_recent_target_truncated_future(self, client, mock_db, auth_headers):
         conn, cur = mock_db
         cur.fetchall.return_value = []

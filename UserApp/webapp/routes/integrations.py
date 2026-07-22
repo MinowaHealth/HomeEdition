@@ -20,6 +20,7 @@ from utils import (
     get_user_id,
     get_user_timezone,
     local_to_utc,
+    parse_detail_window,
     parse_pagination_params,
     paginated_response,
 )
@@ -548,40 +549,35 @@ def list_garmin_jobs():
     return jsonify(paginated_response(result, total, limit, offset, key='entries'))
 
 
-# Garmin per-minute detail window (± this many minutes around the target)
-GARMIN_DETAIL_WINDOW_MINUTES = 60
-
-
 @bp.route('/garmin/minute-detail', methods=['GET'])
 @require_auth
 def garmin_minute_detail():
     """Per-minute Garmin HR / respiration / stress around a point in time.
 
-    Query param:
-        at (required) — ISO 8601 instant. Offset-aware strings are honored;
-            naive strings are read in the user's home timezone (app convention).
+    Query params (two invocation modes, same response shape):
+        at — ISO 8601 instant. Offset-aware strings are honored; naive
+            strings are read in the user's home timezone (app convention).
+            Window is [at − window_minutes, at + window_minutes].
+        window_minutes — half-width around `at` in minutes
+            (default 60, max 720).
+        from / to — explicit ISO 8601 window bounds (both required together;
+            `at` is ignored). Span capped at 24 hours.
 
-    Returns one row per minute in [at − 60min, at + 60min] that has at least
-    one sample in any series, each minute carrying heart_rate, respiratory_rate,
-    and stress (null where that series had no sample). When `at` is recent the
-    forward half of the window may not exist yet — the response returns only
-    elapsed minutes and sets `truncated_future`.
+    Returns one row per minute in the window that has at least one sample in
+    any series, each minute carrying heart_rate, respiratory_rate, and stress
+    (null where that series had no sample). When the window end is recent the
+    forward half may not exist yet — the response returns only elapsed
+    minutes and sets `truncated_future`. In from/to mode `target` is null.
 
-    The ±60-minute bound keeps the response minimal — only the window around
-    the caller-specified event is returned, scoped to the authenticated user
-    (explicit tenant_id/user_id predicates; no RLS on this box).
+    The bounded window (±12h max around `at`, 24h max span for from/to)
+    keeps the response minimal — only the window around the caller-specified
+    event is returned, scoped to the authenticated user (explicit
+    tenant_id/user_id predicates; no RLS on this box).
     """
-    at_str = request.args.get('at')
-    if not at_str:
-        return jsonify({'error': 'at (ISO 8601 timestamp) is required'}), 400
-    try:
-        at_utc = local_to_utc(at_str)
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Invalid at timestamp; use ISO 8601'}), 400
+    at_utc, start, end, err = parse_detail_window()
+    if err:
+        return err
 
-    window = timedelta(minutes=GARMIN_DETAIL_WINDOW_MINUTES)
-    start = at_utc - window
-    end = at_utc + window
     now = datetime.now(timezone.utc)
 
     conn = get_db_connection()
@@ -654,11 +650,11 @@ def garmin_minute_detail():
         })
 
     return jsonify({
-        'target': at_utc.isoformat(),
+        'target': at_utc.isoformat() if at_utc else None,
         'window': {
             'from': start.isoformat(),
             'to': end.isoformat(),
-            'minutes': GARMIN_DETAIL_WINDOW_MINUTES * 2 + 1,
+            'minutes': int((end - start).total_seconds() // 60) + 1,
         },
         'samples': samples,
         'counts': {
@@ -678,33 +674,32 @@ def garmin_minute_detail():
 def garmin_sleep_events_detail():
     """Garmin sleep-stage events around a point in time.
 
-    Query param:
-        at (required) — ISO 8601 instant. Offset-aware strings are honored;
-            naive strings are read in the user's home timezone.
+    Query params (two invocation modes, same response shape):
+        at — ISO 8601 instant. Offset-aware strings are honored; naive
+            strings are read in the user's home timezone (app convention).
+            Window is [at − window_minutes, at + window_minutes].
+        window_minutes — half-width around `at` in minutes
+            (default 60, max 720).
+        from / to — explicit ISO 8601 window bounds (both required together;
+            `at` is ignored). Span capped at 24 hours.
 
     Returns every sleep-stage interval (deep / light / rem / awake) that
-    overlaps [at − 60min, at + 60min]. Events are returned with their true,
-    un-clipped start/end — a stage that runs past the window edge shows its
-    full extent, since we're characterizing what was happening AROUND the
-    target, not only inside a hard box. `in_window_seconds_by_type` clips to
-    the window so the rollup doesn't overcount an edge event. A recent target
-    returns only elapsed events and sets `truncated_future`.
+    overlaps the window. Events are returned with their true, un-clipped
+    start/end — a stage that runs past the window edge shows its full extent,
+    since we're characterizing what was happening AROUND the target, not only
+    inside a hard box. `in_window_seconds_by_type` clips to the window so the
+    rollup doesn't overcount an edge event. A recent target returns only
+    elapsed events and sets `truncated_future`. In from/to mode `target` and
+    `stage_at_target` are null.
 
-    The ±60-minute bound keeps the response minimal; the read is scoped to
-    the authenticated user (explicit tenant_id/user_id predicates; no RLS
-    on this box).
+    The bounded window (±12h max around `at`, 24h max span for from/to)
+    keeps the response minimal; the read is scoped to the authenticated user
+    (explicit tenant_id/user_id predicates; no RLS on this box).
     """
-    at_str = request.args.get('at')
-    if not at_str:
-        return jsonify({'error': 'at (ISO 8601 timestamp) is required'}), 400
-    try:
-        at_utc = local_to_utc(at_str)
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Invalid at timestamp; use ISO 8601'}), 400
+    at_utc, start, end, err = parse_detail_window()
+    if err:
+        return err
 
-    window = timedelta(minutes=GARMIN_DETAIL_WINDOW_MINUTES)
-    start = at_utc - window
-    end = at_utc + window
     now = datetime.now(timezone.utc)
 
     conn = get_db_connection()
@@ -739,7 +734,7 @@ def garmin_sleep_events_detail():
             st = pytz.UTC.localize(st)
         if en.tzinfo is None:
             en = pytz.UTC.localize(en)
-        contains = st <= at_utc < en
+        contains = at_utc is not None and st <= at_utc < en
         if contains:
             stage_at_target = typ
         events.append({
@@ -755,11 +750,11 @@ def garmin_sleep_events_detail():
             in_window_secs[typ] = in_window_secs.get(typ, 0) + overlap
 
     return jsonify({
-        'target': at_utc.isoformat(),
+        'target': at_utc.isoformat() if at_utc else None,
         'window': {
             'from': start.isoformat(),
             'to': end.isoformat(),
-            'minutes': GARMIN_DETAIL_WINDOW_MINUTES * 2 + 1,
+            'minutes': int((end - start).total_seconds() // 60) + 1,
         },
         'events': events,
         'stage_at_target': stage_at_target,

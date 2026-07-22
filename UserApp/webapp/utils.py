@@ -11,7 +11,7 @@ from flask import request, jsonify, g, redirect, url_for, current_app
 from functools import wraps
 import os
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Lock
 
 import auth
@@ -384,6 +384,64 @@ def parse_date_range_params():
         }), 400)
 
     return start_date, end_date, None
+
+
+# Shared bounds for the point-in-time detail endpoints (minute-detail,
+# sleep-events, observations/detail): ±60 min default half-width around `at`,
+# widenable to ±720 min, or an explicit from/to span capped at 24 hours.
+DETAIL_WINDOW_MINUTES = 60
+DETAIL_WINDOW_MAX_MINUTES = 720
+DETAIL_SPAN_MAX_HOURS = 24
+
+
+def parse_detail_window():
+    """
+    Parse the shared at / window_minutes / from-to query params used by the
+    point-in-time detail endpoints. Two invocation modes, same return shape:
+
+        at (+ optional window_minutes) — window is [at − w, at + w]
+        from / to — explicit bounds (both required together; `at` ignored)
+
+    Timestamps follow the app convention: offset-aware ISO 8601 strings are
+    honored; naive strings are read in the user's home timezone.
+
+    Returns:
+        (at_utc, start, end, error_response)
+        If error_response is not None, return it immediately (400 status).
+        at_utc is None in from/to mode.
+    """
+    at_str = request.args.get('at')
+    from_str = request.args.get('from')
+    to_str = request.args.get('to')
+
+    if from_str or to_str:
+        if not (from_str and to_str):
+            return None, None, None, (jsonify({'error': 'from and to must be provided together'}), 400)
+        try:
+            start = local_to_utc(from_str)
+            end = local_to_utc(to_str)
+        except (ValueError, TypeError):
+            return None, None, None, (jsonify({'error': 'Invalid from/to timestamp; use ISO 8601'}), 400)
+        if end <= start:
+            return None, None, None, (jsonify({'error': 'to must be after from'}), 400)
+        if end - start > timedelta(hours=DETAIL_SPAN_MAX_HOURS):
+            return None, None, None, (jsonify({'error': f'from/to span must be {DETAIL_SPAN_MAX_HOURS} hours or less'}), 400)
+        return None, start, end, None
+
+    if not at_str:
+        return None, None, None, (jsonify({'error': 'at (ISO 8601 timestamp) or from/to is required'}), 400)
+    try:
+        at_utc = local_to_utc(at_str)
+    except (ValueError, TypeError):
+        return None, None, None, (jsonify({'error': 'Invalid at timestamp; use ISO 8601'}), 400)
+    try:
+        window_minutes = int(request.args.get('window_minutes', DETAIL_WINDOW_MINUTES))
+    except (ValueError, TypeError):
+        return None, None, None, (jsonify({'error': 'window_minutes must be an integer'}), 400)
+    if not 1 <= window_minutes <= DETAIL_WINDOW_MAX_MINUTES:
+        return None, None, None, (jsonify({'error': f'window_minutes must be between 1 and {DETAIL_WINDOW_MAX_MINUTES}'}), 400)
+    window = timedelta(minutes=window_minutes)
+    return at_utc, at_utc - window, at_utc + window, None
 
 
 def parse_pagination_params(default_limit=50, max_limit=200):

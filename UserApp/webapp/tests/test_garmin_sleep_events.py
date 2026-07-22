@@ -93,6 +93,45 @@ class TestGarminSleepEvents:
         )
         assert resp.get_json()['stage_at_target'] is None
 
+    def test_window_minutes_widens(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = []
+        resp = client.get(
+            '/api/v1/garmin/sleep-events?at=2026-07-12T17:30:00Z&window_minutes=240',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        at = _dt(2026, 7, 12, 17, 30)
+        win_start, win_end = at - timedelta(minutes=240), at + timedelta(minutes=240)
+        call = [c for c in cur.execute.call_args_list if len(c.args) == 2][-1]
+        from conftest import TEST_USER_ID
+        assert tuple(call.args[1]) == (1, TEST_USER_ID, win_end, win_start)
+        assert resp.get_json()['window']['minutes'] == 481
+
+    def test_from_to_mode_null_target_and_stage(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = [
+            {'start_time': _dt(2026, 7, 12, 2, 0),
+             'end_time': _dt(2026, 7, 12, 2, 30), 'sleep_type': 'deep'},
+        ]
+        resp = client.get(
+            '/api/v1/garmin/sleep-events'
+            '?from=2026-07-12T00:00:00Z&to=2026-07-12T06:00:00Z',
+            headers=auth_headers,
+        )
+        body = resp.get_json()
+        assert body['target'] is None
+        assert body['stage_at_target'] is None
+        assert body['events'][0]['contains_target'] is False
+        assert body['window']['minutes'] == 361
+
+    def test_from_without_to_400(self, client, mock_db, auth_headers):
+        resp = client.get(
+            '/api/v1/garmin/sleep-events?to=2026-07-12T06:00:00Z',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
     def test_recent_target_truncated_future(self, client, mock_db, auth_headers):
         conn, cur = mock_db
         cur.fetchall.return_value = []

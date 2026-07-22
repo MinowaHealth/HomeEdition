@@ -5,7 +5,7 @@ Blueprint for blood pressure, temperature, weight, blood glucose, observations, 
 """
 from flask import Blueprint, request, jsonify, g, current_app
 from db_driver import sql
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import pytz
 import uuid
 import threading
@@ -15,6 +15,7 @@ from utils import (
     get_db_connection,
     get_user_id,
     local_to_utc,
+    parse_detail_window,
     table_has_column,
     parse_pagination_params,
     paginated_response,
@@ -604,40 +605,36 @@ def get_observations():
     return jsonify(paginated_response(observations, total, limit, offset, key='entries'))
 
 
-OBSERVATION_DETAIL_WINDOW_MINUTES = 60
-
-
 @bp.route('/observations/detail', methods=['GET'])
 @require_auth
 def observations_detail():
-    """All observations in the hour before and after a point in time.
+    """All observations around a point in time.
 
-    Query param:
-        at (required) — ISO 8601 instant. Offset-aware strings are honored;
-            naive strings are read in the user's home timezone (app convention).
+    Query params (two invocation modes, same response shape):
+        at — ISO 8601 instant. Offset-aware strings are honored; naive
+            strings are read in the user's home timezone (app convention).
+            Window is [at − window_minutes, at + window_minutes].
+        window_minutes — half-width around `at` in minutes
+            (default 60, max 720).
+        from / to — explicit ISO 8601 window bounds (both required together;
+            `at` is ignored). Span capped at 24 hours.
 
-    Returns every observation whose observed_at falls in
-    [at − 60min, at + 60min], ordered by time, each carrying its signed offset
-    from the target so the caller can see what was recorded just before and
-    just after the event. Parallels the Garmin minute-detail / sleep-events
-    tools: same ±60-minute window and `truncated_future` semantics. When `at`
-    is recent the forward half of the window may not exist yet.
+    Returns every observation whose observed_at falls in the window, ordered
+    by time, each carrying its signed offset from the target so the caller
+    can see what was recorded just before and just after the event. Parallels
+    the Garmin minute-detail / sleep-events tools: same window params and
+    `truncated_future` semantics. When the window end is in the future only
+    elapsed observations exist. In from/to mode `target` and
+    `seconds_from_target` are null.
 
-    The ±60-minute bound keeps the response minimal; the read is scoped to
-    the authenticated user (explicit tenant_id/user_id predicates; no RLS
-    on this box).
+    The bounded window (±12h max around `at`, 24h max span for from/to)
+    keeps the response minimal; the read is scoped to the authenticated user
+    (explicit tenant_id/user_id predicates; no RLS on this box).
     """
-    at_str = request.args.get('at')
-    if not at_str:
-        return jsonify({'error': 'at (ISO 8601 timestamp) is required'}), 400
-    try:
-        at_utc = local_to_utc(at_str)
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Invalid at timestamp; use ISO 8601'}), 400
+    at_utc, start, end, err = parse_detail_window()
+    if err:
+        return err
 
-    window = timedelta(minutes=OBSERVATION_DETAIL_WINDOW_MINUTES)
-    start = at_utc - window
-    end = at_utc + window
     now = datetime.now(timezone.utc)
 
     conn = get_db_connection()
@@ -677,16 +674,16 @@ def observations_detail():
             'severity': r['severity'],
             'mental_health_flag': bool(r['mental_health_flag']),
             'tags': r['tags'] or [],
-            'seconds_from_target': int((ts - at_utc).total_seconds()),
+            'seconds_from_target': int((ts - at_utc).total_seconds()) if at_utc else None,
         })
         by_category[category] = by_category.get(category, 0) + 1
 
     return jsonify({
-        'target': at_utc.isoformat(),
+        'target': at_utc.isoformat() if at_utc else None,
         'window': {
             'from': start.isoformat(),
             'to': end.isoformat(),
-            'minutes': OBSERVATION_DETAIL_WINDOW_MINUTES * 2 + 1,
+            'minutes': int((end - start).total_seconds() // 60) + 1,
         },
         'observations': observations,
         'counts': {

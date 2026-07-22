@@ -1187,6 +1187,45 @@ Free-text health notes and observations.
 ]
 ```
 
+### GET /api/v1/observations/detail
+
+Observations around a single point in time — by default the hour before
+through the hour after (±60 minutes). For seeing what the user recorded
+around a discrete event (a reaction, a symptom onset, a reading).
+
+Two invocation modes, same response shape: a point in time (`at`, optionally
+widened with `window_minutes`), or an explicit window (`from` + `to`).
+
+**Query params:**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `at` | unless `from`/`to` given | ISO 8601 instant. Offset-aware values (`...-07:00`, `...Z`) are honored; a value with no offset is read in the user's home timezone. |
+| `window_minutes` | no | Half-width of the window around `at`, in minutes. Default 60, max 720. Ignored when `from`/`to` are given. |
+| `from` / `to` | together | Explicit ISO 8601 window bounds (same timezone rules as `at`). Overrides `at`; span capped at 24 hours. In this mode `target` and each row's `seconds_from_target` are `null` in the response. |
+
+Each observation carries its signed offset from the target
+(`seconds_from_target`, negative = before). When the window end is in the
+future — e.g. `at` is recent — only elapsed observations are returned and
+`truncated_future` is `true`.
+
+**Response (200):**
+```json
+{
+  "target": "2026-07-12T17:30:00+00:00",
+  "window": {"from": "2026-07-12T16:30:00+00:00", "to": "2026-07-12T18:30:00+00:00", "minutes": 121},
+  "observations": [
+    {"id": "uuid", "timestamp": "2026-07-12T17:15:00+00:00", "observation": "itchy throat", "source_type": "symptom", "severity": 3, "mental_health_flag": false, "tags": ["allergy"], "seconds_from_target": -900}
+  ],
+  "counts": {"observations": 1, "by_category": {"symptom": 1}},
+  "truncated_future": false
+}
+```
+
+**Errors:** `400` if neither `at` nor `from`/`to` is given, if only one of
+`from`/`to` is given, if a timestamp is invalid, if `to` ≤ `from`, if the
+`from`/`to` span exceeds 24 hours, or if `window_minutes` is outside 1–720.
+
 ### POST /api/v1/observations
 
 **Request:**
@@ -1460,6 +1499,96 @@ List sync jobs.
 ### GET /api/v1/garmin/jobs/:id
 
 **Response (200):** Single job object (same shape as above).
+
+### GET /api/v1/garmin/minute-detail
+
+Per-minute heart rate, respiratory rate, and stress around a single point in
+time — by default the hour before through the hour after (±60 minutes).
+Intended for correlating the wearable's readings with a discrete event
+(symptom onset, a dose, a reaction).
+
+Two invocation modes, same response shape: a point in time (`at`, optionally
+widened with `window_minutes`), or an explicit window (`from` + `to`).
+
+**Query params:**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `at` | unless `from`/`to` given | ISO 8601 instant. Offset-aware values (`...-07:00`, `...Z`) are honored; a value with no offset is read in the user's home timezone. |
+| `window_minutes` | no | Half-width of the window around `at`, in minutes. Default 60, max 720. Ignored when `from`/`to` are given. |
+| `from` / `to` | together | Explicit ISO 8601 window bounds (same timezone rules as `at`). Overrides `at`; span capped at 24 hours. In this mode `target` is `null` in the response. |
+
+Returns one row per minute in the window that has at least one sample in any
+series; each minute carries `heart_rate`, `respiratory_rate`, and `stress`,
+with `null` where that series had no sample that minute. When the window end
+is in the future — e.g. `at` is recent — only elapsed minutes are returned
+and `truncated_future` is `true`.
+
+**Response (200):**
+```json
+{
+  "target": "2026-07-13T18:00:00+00:00",
+  "window": {
+    "from": "2026-07-13T17:00:00+00:00",
+    "to": "2026-07-13T19:00:00+00:00",
+    "minutes": 121
+  },
+  "samples": [
+    {"minute": "2026-07-13T18:00:00+00:00", "heart_rate": 70, "respiratory_rate": 14.2, "stress": null},
+    {"minute": "2026-07-13T18:01:00+00:00", "heart_rate": 72, "respiratory_rate": null, "stress": 30}
+  ],
+  "counts": {"heart_rate": 2, "respiratory_rate": 1, "stress": 1, "minutes": 2},
+  "truncated_future": false
+}
+```
+
+**Errors:** `400` if neither `at` nor `from`/`to` is given, if only one of
+`from`/`to` is given, if a timestamp is invalid, if `to` ≤ `from`, if the
+`from`/`to` span exceeds 24 hours, or if `window_minutes` is outside 1–720.
+
+### GET /api/v1/garmin/sleep-events
+
+Sleep-stage events (deep / light / rem / awake) around a single point in time
+— by default the hour before through the hour after (±60 minutes). For seeing
+the sleep context of a discrete event (a symptom, a waking, a reaction).
+
+Two invocation modes, same response shape: a point in time (`at`, optionally
+widened with `window_minutes`), or an explicit window (`from` + `to`).
+
+**Query params:**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `at` | unless `from`/`to` given | ISO 8601 instant. Offset-aware values (`...-07:00`, `...Z`) are honored; a value with no offset is read in the user's home timezone. |
+| `window_minutes` | no | Half-width of the window around `at`, in minutes. Default 60, max 720. Ignored when `from`/`to` are given. |
+| `from` / `to` | together | Explicit ISO 8601 window bounds (same timezone rules as `at`). Overrides `at`; span capped at 24 hours. In this mode `target` and `stage_at_target` are `null` in the response. |
+
+Returns every stage interval overlapping the window. Events keep their **true,
+un-clipped** `start`/`end` — a stage that runs past the window edge is returned
+in full. `in_window_seconds_by_type` clips to the window so the rollup doesn't
+overcount an edge event. `stage_at_target` is the stage containing the exact
+instant (`null` if awake / in a gap). When the window end is in the future —
+e.g. `at` is recent — only elapsed events are returned and `truncated_future`
+is `true`.
+
+**Response (200):**
+```json
+{
+  "target": "2026-07-12T17:30:00+00:00",
+  "window": {"from": "2026-07-12T16:30:00+00:00", "to": "2026-07-12T18:30:00+00:00", "minutes": 121},
+  "events": [
+    {"start": "2026-07-12T16:10:00+00:00", "end": "2026-07-12T16:40:00+00:00", "sleep_type": "deep", "duration_seconds": 1800, "contains_target": false},
+    {"start": "2026-07-12T17:20:00+00:00", "end": "2026-07-12T17:50:00+00:00", "sleep_type": "light", "duration_seconds": 1800, "contains_target": true}
+  ],
+  "stage_at_target": "light",
+  "counts": {"events": 2, "by_type": {"deep": 1, "light": 1}, "in_window_seconds_by_type": {"deep": 600, "light": 1800}},
+  "truncated_future": false
+}
+```
+
+**Errors:** `400` if neither `at` nor `from`/`to` is given, if only one of
+`from`/`to` is given, if a timestamp is invalid, if `to` ≤ `from`, if the
+`from`/`to` span exceeds 24 hours, or if `window_minutes` is outside 1–720.
 
 ---
 
