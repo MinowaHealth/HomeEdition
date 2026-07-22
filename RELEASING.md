@@ -25,6 +25,8 @@
    - `Infrastructure/init/docker-init-home/02-home_schema.sql` — header
      comment + `schema_version` INSERT
    - `VERSION` file
+   - `APP_VERSION` in `local.env` (what a cold install's first build bakes
+     in — `update.sh`/`regen.sh` override it from `VERSION`)
    - New `scripts/apply_<version>.py` if the schema changed
 3. **Gates — all green, no exceptions:**
    - `cd UserApp && ../.venv/bin/pytest` and `cd UserMCP && ../.venv/bin/pytest`
