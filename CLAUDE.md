@@ -63,7 +63,7 @@ Home Edition replaces multi-tenant RLS with a much simpler model:
 - **Database:** `healthv10` (single database, single app role `healthv10_app`, no RLS)
 - **Container:** `pgvector/pgvector:pg18`
 - **Port:** 5432
-- **Schema source of truth (running appliance):** `Infrastructure/init/docker-init-home/02-home_schema.sql`; role + grants + indexes in `Infrastructure/init/docker-init-home/role/app-role-setup.sql`. Schema version marker: `11.0.0-home`.
+- **Schema source of truth (running appliance):** `Infrastructure/init/docker-init-home/02-home_schema.sql`; role + grants + indexes in `Infrastructure/init/docker-init-home/role/app-role-setup.sql`. Schema version marker: `11.1.0-home`.
 - **Embeddings:** pgvector with **`nomic-embed-text-v2-moe`** via host Ollama (`EMBEDDING_MODEL=nomic-embed-text-v2-moe:latest`, `OLLAMA_URL=http://host.docker.internal:11434`), 768 dimensions, cosine distance, IVFFlat indexes (`lists=100`). On-device embedding is **not** supported — v2-moe doesn't fit on phone hardware, and a smaller on-device model would produce vectors in a different space (meaningless cosine similarity within one column). If the model ever changes, every embedding must be regenerated; column dimension stays at 768 so the schema is unaffected.
 
 ## Repository Layout
