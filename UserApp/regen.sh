@@ -12,6 +12,12 @@ cd "$REPO_ROOT"
 
 DC=(docker compose --project-directory . -f HowToDeploy/docker-compose.local.yml --env-file local.env)
 
+# Release version for /api/v1/healthz (repo-root VERSION file)
+if [ -f VERSION ]; then
+    APP_VERSION=$(cat VERSION)
+    export APP_VERSION
+fi
+
 echo "=== regen: UserApp webapp ==="
 echo "Rebuilding webapp..."
 "${DC[@]}" stop webapp

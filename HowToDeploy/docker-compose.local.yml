@@ -75,6 +75,10 @@ services:
     build:
       context: ./UserApp/webapp
       dockerfile: Dockerfile
+      args:
+        # Release version surfaced at /api/v1/healthz. update.sh/regen.sh
+        # export this from the repo-root VERSION file.
+        APP_VERSION: ${APP_VERSION:-unknown}
     container_name: hb-local-webapp
     restart: unless-stopped
     ports:
