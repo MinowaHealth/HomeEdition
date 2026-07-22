@@ -399,6 +399,9 @@ def get_stacks():
         stack['id'] = str(stack['id'])
         if stack['timeframe_id']:
             stack['timeframe_id'] = str(stack['timeframe_id'])
+        tod = stack.get('timeframe_time_of_day')
+        if tod is not None and hasattr(tod, 'isoformat'):
+            stack['timeframe_time_of_day'] = tod.isoformat()[:5]
         if stack['inputs'] and stack['inputs'][0] is not None:
             for item in stack['inputs']:
                 if item.get('input_id'):

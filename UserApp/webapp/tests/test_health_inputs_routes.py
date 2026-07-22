@@ -5,7 +5,7 @@ Tests health inputs, stacks, and timeframes CRUD with mocked DB.
 """
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 
 import pytest
 
@@ -390,6 +390,28 @@ class TestGetStacks:
         assert '_total' not in data['entries'][0]
         # json_agg NULL should have been normalized to empty list
         assert data['entries'][0]['inputs'] == []
+
+    def test_timeframe_time_of_day_serializes(self, client, mock_db, auth_headers):
+        """time_of_day is a TIME column — raw datetime.time blows up jsonify
+        (500 seen live 2026-07-17); route must stringify it."""
+        conn, cur = mock_db
+        cur.fetchall.return_value = [
+            {
+                '_total': 1,
+                'id': uuid.uuid4(),
+                'name': 'Morning Meds',
+                'timeframe_id': uuid.uuid4(),
+                'timeframe_name': 'Morning',
+                'timeframe_time_of_day': time(8, 0),
+                'timeframe_frequency': 'daily',
+                'is_active': True,
+                'inputs': None,
+            }
+        ]
+
+        resp = client.get('/api/v1/stacks', headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.get_json()['entries'][0]['timeframe_time_of_day'] == '08:00'
 
 
 class TestGetTimeframes:
