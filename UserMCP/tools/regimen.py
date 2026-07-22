@@ -19,7 +19,7 @@ from typing import Any, Dict
 
 from mcp.types import Tool
 
-from tools._envelope import build_envelope
+from tools._envelope import build_envelope, extract_list as _extract_list
 from tools._sources import fetch_sources
 
 logger = logging.getLogger(__name__)
@@ -44,17 +44,6 @@ async def _safe_call(client: Any, path: str, **kwargs) -> Any:
     except Exception as exc:
         logger.warning(f"regimen: {path} failed: {exc}")
         return {"_error": str(exc)}
-
-
-def _extract_list(resp: Any, *keys: str) -> list:
-    if isinstance(resp, list):
-        return resp
-    if isinstance(resp, dict):
-        for k in keys:
-            v = resp.get(k)
-            if isinstance(v, list):
-                return v
-    return []
 
 
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:

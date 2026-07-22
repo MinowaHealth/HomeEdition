@@ -4,7 +4,7 @@ get_document — a single document with its OCR pages and annotations.
 Required argument: `document_id`. The endpoint returns:
   - document metadata (title, category, dates, filesize)
   - page-by-page OCR text with per-page confidence
-  - any user annotations
+  - any user/provider annotations
 
 Caller is typically responding to a search hit. Keep responses bounded:
 default is metadata + page text only, and `include_annotations=false`

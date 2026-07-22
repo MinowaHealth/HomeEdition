@@ -62,7 +62,7 @@ def schema() -> Tool:
     return Tool(
         name="send_feedback",
         description=(
-            "Submit feedback about the MCP server's behavior to the Minowa team. "
+            "Submit feedback about the MCP server's behavior to the SeenWhole team. "
             "Use this when the user reports a problem with data quality, missing "
             "information, incorrect results, or has a feature request."
         ),

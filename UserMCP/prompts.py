@@ -29,6 +29,8 @@ You are helping the user prepare for an upcoming appointment{provider_clause}.
 Produce a concise visit-prep packet. Call these tools in order, then
 synthesize the output — do not paste raw tool responses.
 
+0. `get_current_time` — get today's date and the user's timezone before
+   any date reasoning; never infer dates yourself.
 1. `get_my_profile` — confirm identity, timezone, and active profile
    details.
 2. `get_my_active_regimen` — list currently active medications and

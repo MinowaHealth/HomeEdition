@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-UserMCP - MCP Server for Minowa Health Data
+UserMCP - MCP Server for Minowa.ai Home Edition Health Data
 
-HTTP/SSE transport with per-request bearer token authentication.
-Proxies all requests through the Flask API (UserApp webapp)
-which enforces per-user scoping at the application level.
+Streamable HTTP transport (stateless, /mcp) with per-request bearer token
+authentication; the legacy HTTP/SSE transport (/sse + /messages/) is kept
+for older client configs. Stateless means no server-side session to strand
+when a laptop sleeps mid-session — see MCP/ClaudeDesktopDisconnects.md.
+Proxies all requests through the Flask API (UserApp webapp), which
+enforces per-user privacy with explicit app-level user_id scoping
+(household trust model — no RLS on this box).
 
 Environment variables:
   API_BASE_URL: Flask webapp API endpoint (default: http://localhost)
@@ -35,6 +39,7 @@ from starlette.requests import Request
 from mcp.server.models import InitializationOptions
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import GetPromptResult, Prompt, Resource, Tool, TextContent, ServerCapabilities
 from dotenv import load_dotenv
 import httpx
@@ -118,6 +123,23 @@ server = Server("usermcp")
 
 sse_transport = SseServerTransport("/messages/")
 
+# Stateless: a fresh transport per request, no initialization handshake to
+# validate, so a client reconnecting after laptop sleep can never strand
+# itself on a dead session. json_response: plain JSON replies (no SSE
+# streaming) — our tools are single request/response.
+def _new_session_manager() -> StreamableHTTPSessionManager:
+    return StreamableHTTPSessionManager(
+        app=server,
+        event_store=None,
+        json_response=True,
+        stateless=True,
+    )
+
+
+# Rebuilt on every app startup: .run() is once-per-instance and test
+# clients (TestClient) cycle the lifespan repeatedly in one process.
+session_manager = _new_session_manager()
+
 
 class UserAppClient:
     """Async API client for proxying requests through the Flask webapp."""
@@ -181,6 +203,32 @@ _TOOLS = all_tools()
 _DISPATCH = dispatch_map()
 
 
+def _resolve_api_client() -> tuple[Optional['UserAppClient'], bool]:
+    """Return (client, owned_by_caller).
+
+    SSE path: the connection handler put a session-long client in the
+    contextvar — reuse it, caller must not close it. Streamable HTTP path:
+    the server loop runs in the session manager's task group where that
+    contextvar is unset, so build a client from the Authorization header of
+    the HTTP request the SDK attaches to the request context; caller closes it.
+    """
+    client = _api_client_context.get()
+    if client:
+        return client, False
+    try:
+        http_request = server.request_context.request
+    except LookupError:
+        return None, False
+    if http_request is None:
+        return None, False
+    auth_header = http_request.headers.get("Authorization", "")
+    user_token = auth_header[7:] if auth_header.startswith("Bearer ") else ""
+    if not user_token.strip():
+        return None, False
+    request_id.set(new_request_id())  # task-local; ties this call's log lines together
+    return UserAppClient(API_BASE_URL, user_token), True
+
+
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """List available tools."""
@@ -193,13 +241,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     t0 = time.perf_counter()
     logger.info(f"Tool called: {name}", extra={'tool': name})
 
-    api_client = _api_client_context.get()
+    api_client, owned = _resolve_api_client()
     if not api_client:
         logger.error(f"Tool {name} called without API client context")
         return [TextContent(type="text", text="Error: No API client available - not authenticated")]
 
     handler = _DISPATCH.get(name)
     if handler is None:
+        if owned:
+            await api_client.close()
         logger.warning(f"Unknown tool: {name}")
         return [TextContent(type="text", text=f"Error: Unknown tool: {name}")]
 
@@ -207,8 +257,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = await handler(arguments or {}, api_client)
 
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
-        # Envelope summary fields — one structured log line per tool call so
-        # regressions show up in the logs (rows dropping to 0, truncation
+        # Envelope summary — one structured line per tool call so regressions
+        # show up in `docker compose logs` (rows dropping to 0, truncation
         # spiking, sources vanishing) rather than in prose.
         result_d = as_dict(result or {}, where="mcp_server.envelope.result")
         coverage = result_d.get("coverage")
@@ -246,6 +296,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             exc_info=True
         )
         return [TextContent(type="text", text=f"Error: {str(e)}")]
+    finally:
+        if owned:
+            await api_client.close()
 
 
 @server.list_resources()
@@ -257,8 +310,12 @@ async def list_resources() -> list[Resource]:
 @server.read_resource()
 async def read_resource(uri: str) -> str:
     """Read a resource by URI. Requires per-request API client context."""
-    api_client = _api_client_context.get()
-    return await resources_mod.read(str(uri), api_client)
+    api_client, owned = _resolve_api_client()
+    try:
+        return await resources_mod.read(str(uri), api_client)
+    finally:
+        if owned:
+            await api_client.close()
 
 
 @server.list_prompts()
@@ -279,10 +336,34 @@ async def get_prompt(name: str, arguments: dict | None = None) -> GetPromptResul
 
 @asynccontextmanager
 async def lifespan(app: Starlette):
-    """Startup/shutdown lifecycle."""
-    logger.info("UserMCP server starting...")
-    yield
-    logger.info("UserMCP server shutting down...")
+    """Startup/shutdown lifecycle. Owns the streamable-HTTP task group."""
+    global session_manager
+    session_manager = _new_session_manager()
+    async with session_manager.run():
+        logger.info("UserMCP server starting...")
+        yield
+        logger.info("UserMCP server shutting down...")
+
+
+async def handle_streamable_http(scope, receive, send):
+    """ASGI endpoint for the stateless streamable HTTP transport (/mcp).
+
+    Gates on a bearer token being present (parity with the SSE path);
+    the token itself is validated by UserApp on the first proxied call.
+    """
+    headers = {k: v for k, v in scope.get("headers") or []}
+    auth_header = headers.get(b"authorization", b"").decode("latin-1")
+    if not auth_header.startswith("Bearer ") or not auth_header[7:].strip():
+        logger.warning("Streamable HTTP request without valid Authorization header")
+        await _jsonrpc_error("Missing or invalid Authorization header")(scope, receive, send)
+        return
+    await session_manager.handle_request(scope, receive, send)
+
+
+async def handle_mcp_route(request: Request):
+    """Route wrapper — exact /mcp path (Mount would 307-redirect to /mcp/)."""
+    await handle_streamable_http(request.scope, request.receive, request._send)
+    return _SENT
 
 
 async def handle_sse(request: Request):
@@ -426,6 +507,9 @@ async def health_check(request: Request):
 # Starlette app
 routes = [
     Route("/health", health_check, methods=["GET"]),
+    Route("/mcp", handle_mcp_route, methods=["GET", "POST", "DELETE"]),
+    # Legacy HTTP/SSE transport — strands sessions on laptop sleep
+    # (MCP/ClaudeDesktopDisconnects.md). Kept for older client configs.
     Route("/sse", handle_sse, methods=["GET"]),
     Route("/messages/", handle_messages, methods=["POST"]),
 ]
@@ -450,7 +534,7 @@ async def main():
         host=MCP_HOST,
         port=MCP_PORT,
         log_level=os.getenv('UVICORN_LOG_LEVEL', 'info').lower(),
-        log_config=None,  # Preserve our stdout log handler; uvicorn's default wipes root handlers
+        log_config=None,  # Preserve our LokiHandler; uvicorn's default wipes root handlers
     )
     uv_server = uvicorn.Server(config)
     await uv_server.serve()

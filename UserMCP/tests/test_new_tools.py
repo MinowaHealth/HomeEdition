@@ -68,7 +68,7 @@ async def test_profile_builds_identity_block():
     client = _make_client({
         "/session": {
             "user_id": "u1", "tenant_id": 1, "username": "neal",
-            "display_name": "Tester", "home_timezone": "America/Chicago",
+            "display_name": "Neal", "home_timezone": "America/Chicago",
             "pronouns": "he/him",
         },
         "/dietary-settings": {"settings": [{"diet": "omnivore", "avoid_list": ["peanuts"]}]},
@@ -77,8 +77,9 @@ async def test_profile_builds_identity_block():
     env = await handle({}, client)
 
     _assert_envelope(env)
-    assert env["data"]["profile"]["display_name"] == "Tester"
+    assert env["data"]["profile"]["display_name"] == "Neal"
     assert env["data"]["dietary_settings"]["diet"] == "omnivore"
+    # Home Edition: no delegates block — /providers removed
     assert "delegates" not in env["data"]
 
 
@@ -168,6 +169,10 @@ async def test_vitals_rollup_computes_min_max_avg():
             {"systolic": 120, "diastolic": 80, "measured_at": "2026-04-01"},
             {"systolic": 130, "diastolic": 85, "measured_at": "2026-04-02"},
         ]},
+        "/blood-pressure/sources": {"sources": [
+            {"source": "manual", "readings": 2,
+             "first": "2026-04-01", "last": "2026-04-02"},
+        ]},
         # live vitals API returns the value under a named key, not 'value'
         "/weight": {"entries": [{"weight": 185.0, "unit": "lbs", "timestamp": "2026-04-01"}]},
         "/temperature": {"readings": []},
@@ -184,9 +189,58 @@ async def test_vitals_rollup_computes_min_max_avg():
     assert bp["rollup_systolic"]["count"] == 2
     assert bp["rollup_systolic"]["min"] == 120
     assert bp["rollup_systolic"]["max"] == 130
+    assert bp["available_sources"][0]["source"] == "manual"
     assert env["data"]["weight"]["rollup"]["count"] == 1
     glucose = env["data"]["blood_glucose"]
     assert glucose["rollup"] == {"count": 2, "min": 99.0, "max": 110.0, "avg": 104.5}
+
+
+@pytest.mark.asyncio
+async def test_vitals_bp_sources_filter_passthrough():
+    """bp_sources joins to the API's comma-separated sources param."""
+    from tools.vitals import handle
+
+    captured = {}
+
+    def bp_route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {"readings": []}
+
+    client = _make_client({
+        "/blood-pressure": bp_route,
+        "/blood-pressure/sources": {"sources": [
+            {"source": "manual", "readings": 687, "first": "2023-10-18", "last": "2026-07-19"},
+            {"source": "cuff meter", "readings": 11, "first": "2026-07-18", "last": "2026-07-19"},
+        ]},
+    })
+
+    env = await handle(
+        {"days": 30, "include": ["bp"], "bp_sources": ["manual", "cuff meter"]},
+        client,
+    )
+
+    assert captured["params"]["sources"] == "manual,cuff meter"
+    assert len(env["data"]["blood_pressure"]["available_sources"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_vitals_no_bp_sources_omits_filter():
+    from tools.vitals import handle
+
+    captured = {}
+
+    def bp_route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {"readings": []}
+
+    client = _make_client({
+        "/blood-pressure": bp_route,
+        "/blood-pressure/sources": {"sources": []},
+    })
+
+    await handle({"days": 30, "include": ["bp"]}, client)
+
+    assert "sources" not in captured["params"]
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +266,37 @@ async def test_labs_groups_results_by_test():
     hba1c = next(g for g in groups if g["name"] == "HbA1c")
     assert hba1c["latest"]["value"] == 5.7
     assert hba1c["trend_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_labs_undated_uses_received_fallback_and_gaps():
+    """minowa-mcp-bug-report.md Bug 4: a lab with no clinical draw date must
+    fall back to the labeled received_date AND raise a coverage gap — the old
+    tool reported no gaps despite null dates."""
+    from tools.labs import handle
+
+    client = _make_client({
+        "/lab-results": {"results": [
+            {"name": "Tryptase", "loinc_code": "21582-2", "value": 13.1,
+             "date": None, "received_date": "2026-01-06T08:20:38+00:00"},
+            {"name": "HbA1c", "loinc_code": "4548-4", "value": 5.7,
+             "date": "2026-04-01", "received_date": "2026-04-02T00:00:00+00:00"},
+        ]},
+    })
+
+    env = await handle({}, client)
+
+    tryptase = next(g for g in env["data"]["groups"] if g["name"] == "Tryptase")
+    assert tryptase["latest"]["date"] is None
+    assert tryptase["latest"]["received_date"] == "2026-01-06T08:20:38+00:00"
+    assert tryptase["latest"]["date_is_received_fallback"] is True
+    # HbA1c has a real date — no fallback flag.
+    hba1c = next(g for g in env["data"]["groups"] if g["name"] == "HbA1c")
+    assert hba1c["latest"]["date_is_received_fallback"] is False
+
+    gaps = " ".join(g["reason"] for g in env["coverage"]["gaps"])
+    assert "no clinical draw date" in gaps
+    assert "1 of 2" in gaps
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +344,55 @@ async def test_garmin_detail_requires_at():
 
     assert env["data"]["samples"] == []
     assert any("required" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+@pytest.mark.asyncio
+async def test_garmin_detail_passes_window_minutes():
+    from tools.garmin_detail import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {"target": "2026-07-13T18:00:00+00:00", "window": {},
+                "samples": [], "counts": {"minutes": 0}, "truncated_future": False}
+
+    client = _make_client({"/garmin/minute-detail": route})
+    await handle({"at": "2026-07-13T18:00:00Z", "window_minutes": 180}, client)
+
+    assert captured["params"] == {"at": "2026-07-13T18:00:00Z", "window_minutes": 180}
+
+
+@pytest.mark.asyncio
+async def test_garmin_detail_from_to_overrides_at():
+    from tools.garmin_detail import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {"target": None, "window": {}, "samples": [],
+                "counts": {"minutes": 0}, "truncated_future": False}
+
+    client = _make_client({"/garmin/minute-detail": route})
+    env = await handle({"at": "2026-07-13T18:00:00Z", "window_minutes": 30,
+                        "from": "2026-07-13T06:00:00Z",
+                        "to": "2026-07-13T12:00:00Z"}, client)
+
+    assert captured["params"] == {"from": "2026-07-13T06:00:00Z",
+                                  "to": "2026-07-13T12:00:00Z"}
+    assert env["data"]["target"] is None
+
+
+@pytest.mark.asyncio
+async def test_garmin_detail_from_without_to_rejected():
+    from tools.garmin_detail import handle
+
+    client = _make_client({})  # route must never be called
+    env = await handle({"from": "2026-07-13T06:00:00Z"}, client)
+
+    assert env["data"]["samples"] == []
+    assert any("together" in g["reason"] for g in env["coverage"]["gaps"])
 
 
 @pytest.mark.asyncio
@@ -346,6 +480,61 @@ async def test_sleep_events_requires_at():
 
 
 @pytest.mark.asyncio
+async def test_sleep_events_passes_window_minutes():
+    from tools.sleep_events import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {"target": "2026-07-12T17:30:00+00:00", "window": {},
+                "events": [], "stage_at_target": None,
+                "counts": {"events": 0, "by_type": {},
+                           "in_window_seconds_by_type": {}},
+                "truncated_future": False}
+
+    client = _make_client({"/garmin/sleep-events": route})
+    await handle({"at": "2026-07-12T17:30:00Z", "window_minutes": 240}, client)
+
+    assert captured["params"] == {"at": "2026-07-12T17:30:00Z", "window_minutes": 240}
+
+
+@pytest.mark.asyncio
+async def test_sleep_events_from_to_overrides_at():
+    from tools.sleep_events import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {"target": None, "window": {}, "events": [],
+                "stage_at_target": None,
+                "counts": {"events": 0, "by_type": {},
+                           "in_window_seconds_by_type": {}},
+                "truncated_future": False}
+
+    client = _make_client({"/garmin/sleep-events": route})
+    env = await handle({"at": "2026-07-12T17:30:00Z",
+                        "from": "2026-07-12T00:00:00Z",
+                        "to": "2026-07-12T06:00:00Z"}, client)
+
+    assert captured["params"] == {"from": "2026-07-12T00:00:00Z",
+                                  "to": "2026-07-12T06:00:00Z"}
+    assert env["data"]["target"] is None
+
+
+@pytest.mark.asyncio
+async def test_sleep_events_from_without_to_rejected():
+    from tools.sleep_events import handle
+
+    client = _make_client({})  # route must never be called
+    env = await handle({"from": "2026-07-12T00:00:00Z"}, client)
+
+    assert env["data"]["events"] == []
+    assert any("together" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+@pytest.mark.asyncio
 async def test_sleep_events_empty_window_gaps():
     from tools.sleep_events import handle
 
@@ -429,6 +618,58 @@ async def test_observations_detail_requires_at():
 
     assert env["data"]["observations"] == []
     assert any("required" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+@pytest.mark.asyncio
+async def test_observations_detail_passes_window_minutes():
+    from tools.observations_detail import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {"target": "2026-07-12T17:30:00+00:00", "window": {},
+                "observations": [],
+                "counts": {"observations": 0, "by_category": {}},
+                "truncated_future": False}
+
+    client = _make_client({"/observations/detail": route})
+    await handle({"at": "2026-07-12T17:30:00Z", "window_minutes": 180}, client)
+
+    assert captured["params"] == {"at": "2026-07-12T17:30:00Z", "window_minutes": 180}
+
+
+@pytest.mark.asyncio
+async def test_observations_detail_from_to_overrides_at():
+    from tools.observations_detail import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {"target": None, "window": {}, "observations": [],
+                "counts": {"observations": 0, "by_category": {}},
+                "truncated_future": False}
+
+    client = _make_client({"/observations/detail": route})
+    env = await handle({"at": "2026-07-12T17:30:00Z",
+                        "from": "2026-07-12T00:00:00Z",
+                        "to": "2026-07-12T06:00:00Z"}, client)
+
+    assert captured["params"] == {"from": "2026-07-12T00:00:00Z",
+                                  "to": "2026-07-12T06:00:00Z"}
+    assert env["data"]["target"] is None
+
+
+@pytest.mark.asyncio
+async def test_observations_detail_from_without_to_rejected():
+    from tools.observations_detail import handle
+
+    client = _make_client({})  # route must never be called
+    env = await handle({"from": "2026-07-12T00:00:00Z"}, client)
+
+    assert env["data"]["observations"] == []
+    assert any("together" in g["reason"] for g in env["coverage"]["gaps"])
 
 
 @pytest.mark.asyncio
@@ -800,8 +1041,9 @@ async def test_context_window_budget_for_each_tool():
 
     tool_cases = [
         ("profile", profile.handle, {}, {
-            "/session": {"user_id": "u1", "display_name": "Tester"},
+            "/session": {"user_id": "u1", "display_name": "Neal"},
             "/dietary-settings": {"settings": [{"diet": "omnivore"}]},
+            "/providers": {"providers": []},
         }),
         ("regimen", regimen.handle, {}, {
             "/health-inputs": {"inputs": [

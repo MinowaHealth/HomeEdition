@@ -2,11 +2,13 @@
 get_observations_detail — user observations around a point in time.
 
 Wraps `GET /api/v1/observations/detail`, which returns every observation
-(free-text note, symptom, logged event) whose observed_at falls in
-[at − 60min, at + 60min]. Parallels the Garmin minute-detail and sleep-events
-tools: same ±60-minute window, same `coverage.truncated` semantics for a
-recent target. Use it to see what the user recorded AROUND a discrete event
-(a reaction, a symptom onset, a reading) at their own note resolution.
+(free-text note, symptom, logged event) whose observed_at falls in the
+window — ±60 minutes around `at` by default, widenable with `window_minutes`
+(max ±720) or set explicitly with `from`/`to` (span capped at 24h). Parallels
+the Garmin minute-detail and sleep-events tools: same window params, same
+`coverage.truncated` semantics for a recent target. Use it to see what the
+user recorded AROUND a discrete event (a reaction, a symptom onset, a
+reading) at their own note resolution.
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ from mcp.types import Tool
 from tools._envelope import build_envelope
 from tools._shape import as_dict
 from tools._sources import fetch_sources
+from tools._window import WINDOW_PROPERTIES, parse_window_args
 
 logger = logging.getLogger(__name__)
 
@@ -27,38 +30,30 @@ def schema() -> Tool:
         name="get_observations_detail",
         description=(
             "Return the user's observations (free-text notes, symptoms, logged "
-            "events) for the hour before and hour after a specific point in time "
-            "(±60 minutes). Each observation carries its timestamp, text, "
+            "events) around a point in time. Two ways to call it: give `at` "
+            "(window defaults to ±60 minutes; widen with `window_minutes`, up "
+            "to ±720), or give explicit `from` and `to` bounds (span capped at "
+            "24 hours). Each observation carries its timestamp, text, "
             "category, severity, mental-health flag, tags, and signed offset "
-            "from the target instant (negative = before). If the point in time "
-            "is recent, only elapsed observations are returned. Empty when "
-            "nothing was recorded in the window."
+            "from the target instant (negative = before). If the window "
+            "extends into the future, only elapsed observations are returned. "
+            "Empty when nothing was recorded in the window."
         ),
         inputSchema={
             "type": "object",
-            "required": ["at"],
-            "properties": {
-                "at": {
-                    "type": "string",
-                    "description": (
-                        "The point in time, ISO 8601. Offset-aware values "
-                        "(...-07:00 or ...Z) are honored; a value with no "
-                        "offset is read in the user's home timezone."
-                    ),
-                },
-            },
+            "properties": WINDOW_PROPERTIES,
         },
     )
 
 
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
-    at = (arguments.get("at") or "").strip()
-    if not at:
+    params, problem = parse_window_args(arguments)
+    if problem:
         return build_envelope(
             {"target": None, "observations": []},
             coverage={
                 "counts": {"rows": 0, "sources_represented": []},
-                "gaps": [{"reason": "at (ISO 8601 timestamp) is required"}],
+                "gaps": [{"reason": problem}],
                 "truncated": False,
             },
             sources=await fetch_sources(client),
@@ -66,7 +61,7 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
 
     try:
         resp = await client.call_api(
-            "/observations/detail", method="GET", params={"at": at}
+            "/observations/detail", method="GET", params=params
         )
     except Exception as exc:
         logger.error(f"observations_detail: {exc}")

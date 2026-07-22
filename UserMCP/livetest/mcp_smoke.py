@@ -16,7 +16,6 @@ import sys
 import time
 import urllib.error
 import urllib.request
-import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 MCP_URL = os.environ.get("MCP_URL", "http://localhost:13282")

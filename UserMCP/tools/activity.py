@@ -14,7 +14,8 @@ from typing import Any, Dict
 
 from mcp.types import Tool
 
-from tools._envelope import build_envelope, window_block
+from tools._envelope import build_envelope, resolve_window, window_block
+from tools._time import home_tz
 from tools._links import absolutize_links
 from tools._sources import fetch_sources
 
@@ -30,9 +31,11 @@ def schema() -> Tool:
         description=(
             "Return the user's recent activity feed: medication/supplement "
             "logs, food logs, observations, data-source sync events "
-            "(Garmin, HealthKit), and document arrivals (uploads, faxes, "
-            "saved AI session summaries), in a single chronological stream. "
-            "Filter by kind or by input_id. Default window is 14 days (max 90)."
+            "(Garmin, HealthKit), document arrivals (uploads, faxes, "
+            "saved AI session summaries), and supply acquisitions (new "
+            "med/supplement arrivals), in a single chronological stream. "
+            "Filter by kind or by input_id. Default window is 14 days (max 90). "
+            "Dates are the user's local days; call get_current_time for today."
         ),
         inputSchema={
             "type": "object",
@@ -43,7 +46,7 @@ def schema() -> Tool:
                 "kind": {
                     "type": "string",
                     "enum": ["all", "medication", "food", "observation", "sync",
-                             "document"],
+                             "document", "acquisition"],
                     "default": "all",
                 },
                 "input_id": {
@@ -56,24 +59,12 @@ def schema() -> Tool:
     )
 
 
-def _resolve_window(arguments: Dict[str, Any]) -> tuple[date, date]:
-    from_str = arguments.get("from")
-    to_str = arguments.get("to")
-    if from_str and to_str:
-        start = datetime.strptime(from_str, "%Y-%m-%d").date()
-        end = datetime.strptime(to_str, "%Y-%m-%d").date()
-    else:
-        days = int(arguments.get("days", _DEFAULT_DAYS) or _DEFAULT_DAYS)
-        days = max(1, min(_MAX_DAYS, days))
-        end = datetime.now(timezone.utc).date()
-        start = end - timedelta(days=days - 1)
-    if (end - start).days + 1 > _MAX_DAYS:
-        start = end - timedelta(days=_MAX_DAYS - 1)
-    return start, end
-
-
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
-    start, end = _resolve_window(arguments)
+    # days-shorthand only: anchor 'today' in the user's home timezone
+    tz = None
+    if not (arguments.get("from") and arguments.get("to")):
+        tz, _tz_source = await home_tz(client)
+    start, end = resolve_window(arguments, tz=tz, default_days=_DEFAULT_DAYS, max_days=_MAX_DAYS)
     kind = (arguments.get("kind") or "all").lower()
     input_id = arguments.get("input_id")
     limit = max(1, min(200, int(arguments.get("limit", 50) or 50)))

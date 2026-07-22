@@ -10,7 +10,7 @@ proceed without crashing.
 The log line `api_shape_drift` is the chess-problem audit signal. After
 30 days of production traffic, if it has never fired, the defensive
 narrowing has not been needed and call sites can be inlined or the
-helpers removed entirely.
+helpers removed entirely. See OpenTelemetry.md "guard.fired" pattern.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def as_dict(value: Any, *, where: str) -> dict:
         value: Object to narrow.
         where: Stable caller identifier (e.g. "profile.dietary_latest").
                Used as the log-line label so drift events aggregate cleanly
-               in log queries.
+               in Loki queries.
     """
     if isinstance(value, dict):
         return value

@@ -1,9 +1,8 @@
 """
 get_wearable_summary — Garmin + HealthKit aggregate over a window.
 
-Closes the wearable-data P0 from qualitative testing: the old
-`snapshot.wearable_data` returned empty rows with no explanation when
-Garmin wasn't connected or synced.
+Closes MCPrecommendations P0: the old `snapshot.wearable_data` returned
+empty rows with no explanation when Garmin wasn't connected or synced.
 This tool surfaces:
   - whether each source is connected + when it last synced
   - daily aggregates (steps, sleep, stress, resting HR, SpO2)
@@ -16,15 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict
 
 from mcp.types import Tool
 
-from tools._envelope import build_envelope, window_block
+from tools._envelope import build_envelope, resolve_window as _reuse_window, window_block
 from tools._shape import as_dict, as_list
 from tools._sources import fetch_sources
-from tools.adherence import _resolve_window as _reuse_window  # same 1..90 window rules
 
 logger = logging.getLogger(__name__)
 

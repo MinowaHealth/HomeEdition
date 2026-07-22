@@ -67,19 +67,33 @@ CONTRACT = {
             "route_reads_dates_via": None,
             "route_must_not_read": [],
         },
+        "get_stacks": {
+            "path": "/stacks",
+            "sends": {"limit": "limit", "offset": "offset"},
+            "route_reads_dates_via": None,
+            "route_must_not_read": [],
+        },
+        "get_acquisitions": {
+            "path": "/acquisitions",
+            "sends": {"from": "start_date", "to": "end_date",
+                      "health_input_id": "health_input_id",
+                      "limit": "limit", "offset": "offset"},
+            "route_reads_dates_via": "parse_date_range_params",
+            "route_must_not_read": ["from", "to"],
+        },
     },
     "kind": {
         "mcp_enum": ["all", "medication", "food", "observation", "sync",
-                     "document"],
+                     "document", "acquisition"],
         "route_applies": ["food", "medication", "observation", "sync",
-                          "document"],
+                          "document", "acquisition"],
     },
     "scopes": ["all", "allergies", "conditions",
                "documents", "food", "inputs", "notes", "observations"],
     "modes": ["auto", "semantic", "keyword"],
 }
 
-CONTRACT_SHA256 = "7bc86e8b7eb545a281a759089ef0a2f204289a7e090ee526f52608dc67cbae08"
+CONTRACT_SHA256 = "d1a0e5c3a91f23585cb19b9354fe0997dfc82a499e7040541504d6f97f501ae3"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 

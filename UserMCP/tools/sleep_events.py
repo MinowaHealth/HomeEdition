@@ -2,11 +2,13 @@
 get_sleep_events_detail — Garmin sleep-stage events around a point in time.
 
 Wraps `GET /api/v1/garmin/sleep-events`, which returns every sleep-stage
-interval (deep / light / rem / awake) overlapping [at − 60min, at + 60min].
-Events keep their true, un-clipped start/end — a stage that runs past the
-window edge is shown in full, since the goal is to characterize what was
-happening AROUND the target time. Use it to see the sleep context of a
-discrete event (a symptom, a waking, a reaction) at stage resolution.
+interval (deep / light / rem / awake) overlapping the window — ±60 minutes
+around `at` by default, widenable with `window_minutes` (max ±720) or set
+explicitly with `from`/`to` (span capped at 24h). Events keep their true,
+un-clipped start/end — a stage that runs past the window edge is shown in
+full, since the goal is to characterize what was happening AROUND the target
+time. Use it to see the sleep context of a discrete event (a symptom, a
+waking, a reaction) at stage resolution.
 
 A recent target returns only elapsed events; `coverage.truncated` reflects
 that.
@@ -21,6 +23,7 @@ from mcp.types import Tool
 from tools._envelope import build_envelope
 from tools._shape import as_dict
 from tools._sources import fetch_sources
+from tools._window import WINDOW_PROPERTIES, parse_window_args
 
 logger = logging.getLogger(__name__)
 
@@ -29,39 +32,32 @@ def schema() -> Tool:
     return Tool(
         name="get_sleep_events_detail",
         description=(
-            "Return Garmin sleep-stage events (deep, light, rem, awake) for the "
-            "hour before and hour after a specific point in time (±60 minutes). "
-            "Each event has its true start/end and duration; events overrunning "
+            "Return Garmin sleep-stage events (deep, light, rem, awake) around "
+            "a point in time. Two ways to call it: give `at` (window defaults "
+            "to ±60 minutes; widen with `window_minutes`, up to ±720), or give "
+            "explicit `from` and `to` bounds (span capped at 24 hours). Each "
+            "event has its true start/end and duration; events overrunning "
             "the window are returned in full. Includes the stage the user was in "
             "at the target instant and a per-stage seconds rollup clipped to the "
-            "window. If the point in time is recent, only elapsed events are "
-            "returned. Empty when the user was awake or the night hasn't synced."
+            "window. If the window extends into the future, only elapsed events "
+            "are returned. Empty when the user was awake or the night hasn't "
+            "synced."
         ),
         inputSchema={
             "type": "object",
-            "required": ["at"],
-            "properties": {
-                "at": {
-                    "type": "string",
-                    "description": (
-                        "The point in time, ISO 8601. Offset-aware values "
-                        "(...-07:00 or ...Z) are honored; a value with no "
-                        "offset is read in the user's home timezone."
-                    ),
-                },
-            },
+            "properties": WINDOW_PROPERTIES,
         },
     )
 
 
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
-    at = (arguments.get("at") or "").strip()
-    if not at:
+    params, problem = parse_window_args(arguments)
+    if problem:
         return build_envelope(
             {"target": None, "events": []},
             coverage={
                 "counts": {"rows": 0, "sources_represented": []},
-                "gaps": [{"reason": "at (ISO 8601 timestamp) is required"}],
+                "gaps": [{"reason": problem}],
                 "truncated": False,
             },
             sources=await fetch_sources(client),
@@ -69,7 +65,7 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
 
     try:
         resp = await client.call_api(
-            "/garmin/sleep-events", method="GET", params={"at": at}
+            "/garmin/sleep-events", method="GET", params=params
         )
     except Exception as exc:
         logger.error(f"sleep_events_detail: {exc}")

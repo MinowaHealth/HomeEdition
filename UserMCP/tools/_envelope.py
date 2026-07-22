@@ -24,8 +24,8 @@ in the caller keeps this module stateless and trivially testable.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Union
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Union
 
 DateLike = Union[str, date, datetime]
 
@@ -51,8 +51,8 @@ def build_envelope(
 
     All sub-blocks are optional but always present in the returned dict —
     omitting them yields `{}` or `[]` rather than a missing key, so callers
-    never need existence checks. Callers typically build `coverage` via
-    `coverage_from_rows()` and `sources` via `tools._sources.fetch_sources()`.
+    never need existence checks. Callers typically build `sources` via
+    `tools._sources.fetch_sources()`.
     """
     return {
         "data": data,
@@ -91,87 +91,47 @@ def window_block(
     }
 
 
-def coverage_from_rows(
-    rows: Iterable[Dict[str, Any]],
+def resolve_window(
+    arguments: Dict[str, Any],
     *,
-    window: Optional[Dict[str, Any]] = None,
-    timestamp_field: str = "timestamp",
-    source_field: Optional[str] = "source",
-    truncated: bool = False,
-    gap_threshold_days: int = 2,
-) -> Dict[str, Any]:
-    """Compute a `coverage` block from a list of rows.
+    default_days: int = 30,
+    max_days: int = 90,
+    tz: Any = None,
+) -> tuple[date, date]:
+    """Resolve a `from`/`to` or `days`-lookback window from tool arguments.
 
-    - `counts.rows` is `len(rows)`.
-    - `counts.sources_represented` is the set of distinct non-null values of
-      `source_field` (or empty if `source_field` is None).
-    - `gaps` is populated from the `window` endpoints plus the sorted
-      timestamps in rows: any stretch ≥ `gap_threshold_days` between
-      consecutive rows, or between `window.from` and the first row, or
-      between the last row and `window.to`, is reported. Pass `window=None`
-      to skip front/back edge gaps.
-    - `truncated` is a passthrough flag the caller sets when the underlying
-      fetch hit a cap.
+    The 90-day cap matches the UserApp `parse_date_range_params` ceiling so
+    the endpoint never rejects a request we just built.
+
+    `tz` (ZoneInfo) anchors the `days`-shorthand end at today *in the user's
+    home timezone*. Without it, a user west of UTC in the evening gets
+    tomorrow as the window end — a silent one-day drift.
     """
-    row_list = list(rows or [])
-    count = len(row_list)
+    from_str = arguments.get("from")
+    to_str = arguments.get("to")
+    if from_str and to_str:
+        start = datetime.strptime(from_str, "%Y-%m-%d").date()
+        end = datetime.strptime(to_str, "%Y-%m-%d").date()
+    else:
+        days = int(arguments.get("days", default_days) or default_days)
+        days = max(1, min(max_days, days))
+        end = datetime.now(tz or timezone.utc).date()
+        start = end - timedelta(days=days - 1)
+    if (end - start).days + 1 > max_days:
+        start = end - timedelta(days=max_days - 1)
+    return start, end
 
-    sources_represented: List[str] = []
-    if source_field:
-        seen = {
-            r.get(source_field)
-            for r in row_list
-            if r.get(source_field) is not None
-        }
-        sources_represented = sorted(s for s in seen if isinstance(s, str))
 
-    timestamps: List[date] = []
-    for r in row_list:
-        ts = r.get(timestamp_field)
-        if ts is None:
-            continue
-        try:
-            timestamps.append(_as_date(ts))
-        except (TypeError, ValueError):
-            continue
-    timestamps.sort()
-
-    gaps: List[Dict[str, Any]] = []
-    if window and timestamps:
-        win_from = _as_date(window["from"])
-        win_to = _as_date(window["to"])
-        if (timestamps[0] - win_from).days >= gap_threshold_days:
-            gaps.append({
-                "from": win_from.isoformat(),
-                "to": (timestamps[0] - timedelta(days=1)).isoformat(),
-                "reason": "no data before first row",
-            })
-        if (win_to - timestamps[-1]).days >= gap_threshold_days:
-            gaps.append({
-                "from": (timestamps[-1] + timedelta(days=1)).isoformat(),
-                "to": win_to.isoformat(),
-                "reason": "no data after last row",
-            })
-    for i in range(1, len(timestamps)):
-        delta = (timestamps[i] - timestamps[i - 1]).days
-        if delta >= gap_threshold_days + 1:
-            gaps.append({
-                "from": (timestamps[i - 1] + timedelta(days=1)).isoformat(),
-                "to": (timestamps[i] - timedelta(days=1)).isoformat(),
-                "reason": "no data between readings",
-            })
-
-    coverage: Dict[str, Any] = {
-        "counts": {
-            "rows": count,
-            "sources_represented": sources_represented,
-        },
-        "gaps": gaps,
-        "truncated": bool(truncated),
-    }
-    if window:
-        coverage["window"] = window
-    return coverage
+def extract_list(resp: Any, *keys: str) -> list:
+    """Pull the first list found under `keys` from an API response ([] if none)."""
+    if isinstance(resp, list):
+        return resp
+    if isinstance(resp, dict):
+        for k in keys:
+            v = resp.get(k)
+            if isinstance(v, list):
+                return v
+    return []
 
 
 def empty_envelope(

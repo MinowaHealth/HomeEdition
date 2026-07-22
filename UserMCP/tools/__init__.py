@@ -19,30 +19,40 @@ from typing import Any, Awaitable, Callable, Dict, List, Tuple
 # Tool module names, in the order they should appear in list_tools().
 # Modules listed here MUST export `schema()` and `async handle(args, client)`.
 #
-# The task-oriented tool surface: profile, regimen, clinical_history,
+# Phase 1 roster: the existing 6 tools + adherence, all envelope-wrapped.
+# Phase 2 (pending) will swap this list for the task-oriented surface
+# described in UserMCPRedesign-Plan.md: profile, regimen, clinical_history,
 # vitals, labs, wearables, activity, adherence, nutrition, search,
-# documents, feedback. Each is envelope-wrapped.
+# documents, feedback.
 _TOOL_MODULES: Tuple[str, ...] = (
+    # Time context (authoritative clock + date arithmetic)
+    "tools.time_context",
+    "tools.date_math",
     # Identity & config
     "tools.profile",
     "tools.regimen",
+    "tools.stacks",  # the named exception to the stack-invisibility rule
     "tools.clinical_history",
     # Observation & trends
     "tools.vitals",
     "tools.labs",
     "tools.wearables",
     "tools.garmin_detail",
+    "tools.garmin_sync",
     "tools.sleep_events",
     "tools.observations_detail",
     # Activity & adherence
     "tools.activity",
     "tools.adherence",
+    "tools.acquisitions",
     # Food & nutrition
     "tools.nutrition",
     # Search & documents
     "tools.search",
     "tools.documents",
     "tools.chat_summary",
+    "tools.episode_report",
+    "tools.episode_report_list",
     # Engagement
     "tools.feedback",
 )

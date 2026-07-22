@@ -26,11 +26,11 @@ from tools._sources import fetch_sources
 # single-file edit reviewed like code — the short form in _envelope.py
 # must also be updated if the first sentence changes.
 DISCLAIMERS_MARKDOWN = """\
-# Minowa — Disclaimers
+# SeenWhole — Disclaimers
 
 ## Not medical advice
 This assistant summarizes the data the user has entered or synced into
-Minowa. It is **not** a substitute for evaluation, diagnosis, or
+SeenWhole. It is **not** a substitute for evaluation, diagnosis, or
 treatment by a licensed clinician. Any actionable health decision —
 starting, stopping, or changing medication; seeking emergency care —
 must be made by the user in consultation with their provider.
@@ -50,16 +50,14 @@ specific. A value flagged "high" by one lab's reference range may be
 normal at another lab.
 
 ## Privacy
-This MCP server runs on the household's own appliance; your health data
-is not sent to any Minowa cloud service. Note that whatever a tool returns
-is passed to the connected MCP client (e.g. Claude Desktop) and its model
-provider — so treat a conversation like any other cloud AI chat, and avoid
-pasting other people's medical information or unrelated secrets.
+Conversations and the data returned to them are visible to SeenWhole
+operators for debugging and moderation. Users should avoid sharing
+secrets (passwords, payment info, others' medical information) in chat.
 """
 
 
 DATA_SOURCES_MARKDOWN = """\
-# Minowa — Data Source Map
+# SeenWhole — Data Source Map
 
 Each tool response includes a `sources` block. This document explains
 what each source means and what tables its data ends up in.

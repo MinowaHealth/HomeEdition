@@ -18,7 +18,8 @@ from typing import Any, Dict
 
 from mcp.types import Tool
 
-from tools._envelope import build_envelope, window_block
+from tools._envelope import build_envelope, resolve_window, window_block
+from tools._time import home_tz
 from tools._sources import fetch_sources
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ def schema() -> Tool:
             "For each input, returns scheduled doses (doses_per_day × days in "
             "window), logged doses, percent adherence, and a list of days where "
             "the user fell short. PRN (as-needed) inputs are excluded from the "
-            "percentage and listed separately under `excluded_prn`."
+            "percentage and listed separately under `excluded_prn`. "
+            "Dates are the user's local days; call get_current_time for today."
         ),
         inputSchema={
             "type": "object",
@@ -63,38 +65,14 @@ def schema() -> Tool:
     )
 
 
-def _resolve_window(
-    arguments: Dict[str, Any],
-) -> tuple[date, date]:
-    """Resolve the adherence window. Accepts `from`/`to` or `days` lookback.
-
-    The 90-day cap matches the UserApp `parse_date_range_params` ceiling so
-    the endpoint never rejects a request we just built.
-    """
-    MAX_DAYS = 90
-    from_str = arguments.get("from")
-    to_str = arguments.get("to")
-
-    if from_str and to_str:
-        start = _parse_iso_date(from_str)
-        end = _parse_iso_date(to_str)
-    else:
-        days = int(arguments.get("days", 30) or 30)
-        days = max(1, min(MAX_DAYS, days))
-        end = datetime.now(timezone.utc).date()
-        start = end - timedelta(days=days - 1)
-
-    if (end - start).days + 1 > MAX_DAYS:
-        start = end - timedelta(days=MAX_DAYS - 1)
-    return start, end
-
-
-def _parse_iso_date(s: str) -> date:
-    return datetime.strptime(s, "%Y-%m-%d").date()
 
 
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
-    start, end = _resolve_window(arguments)
+    # days-shorthand only: anchor 'today' in the user's home timezone
+    tz = None
+    if not (arguments.get("from") and arguments.get("to")):
+        tz, _tz_source = await home_tz(client)
+    start, end = resolve_window(arguments, tz=tz)
 
     # The /adherence route reads start_date/end_date (parse_date_range_params);
     # `from`/`to` were silently dropped — minowa-mcp-bug-report.md Bug 3b.

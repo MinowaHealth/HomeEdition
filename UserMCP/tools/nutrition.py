@@ -19,7 +19,8 @@ from typing import Any, Dict, List
 
 from mcp.types import Tool
 
-from tools._envelope import build_envelope, window_block
+from tools._envelope import build_envelope, extract_list as _extract_list, resolve_window, window_block
+from tools._time import home_tz
 from tools._sources import fetch_sources
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ def schema() -> Tool:
         description=(
             "Return a nutrition report for a window: daily calorie/macro "
             "rollups, meal count, and entries that appear to violate the "
-            "user's current dietary settings. Default 14 days, max 90."
+            "user's current dietary settings. Default 14 days, max 90. "
+            "Dates are the user's local days; call get_current_time for today."
         ),
         inputSchema={
             "type": "object",
@@ -47,39 +49,12 @@ def schema() -> Tool:
     )
 
 
-def _resolve_window(arguments: Dict[str, Any]) -> tuple[date, date]:
-    from_str = arguments.get("from")
-    to_str = arguments.get("to")
-    if from_str and to_str:
-        start = datetime.strptime(from_str, "%Y-%m-%d").date()
-        end = datetime.strptime(to_str, "%Y-%m-%d").date()
-    else:
-        days = int(arguments.get("days", _DEFAULT_DAYS) or _DEFAULT_DAYS)
-        days = max(1, min(_MAX_DAYS, days))
-        end = datetime.now(timezone.utc).date()
-        start = end - timedelta(days=days - 1)
-    if (end - start).days + 1 > _MAX_DAYS:
-        start = end - timedelta(days=_MAX_DAYS - 1)
-    return start, end
-
-
 async def _safe(client: Any, path: str, **kwargs) -> Any:
     try:
         return await client.call_api(path, **kwargs)
     except Exception as exc:
         logger.warning(f"nutrition: {path} failed: {exc}")
         return {"_error": str(exc)}
-
-
-def _extract_list(resp: Any, *keys: str) -> list:
-    if isinstance(resp, list):
-        return resp
-    if isinstance(resp, dict):
-        for k in keys:
-            v = resp.get(k)
-            if isinstance(v, list):
-                return v
-    return []
 
 
 def _day_of(entry: Dict[str, Any]) -> str:
@@ -113,7 +88,11 @@ def _avoid_list(dietary_latest: Dict[str, Any]) -> List[str]:
 
 
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
-    start, end = _resolve_window(arguments)
+    # days-shorthand only: anchor 'today' in the user's home timezone
+    tz = None
+    if not (arguments.get("from") and arguments.get("to")):
+        tz, _tz_source = await home_tz(client)
+    start, end = resolve_window(arguments, tz=tz, default_days=_DEFAULT_DAYS, max_days=_MAX_DAYS)
     params = {"start_date": start.isoformat(), "end_date": end.isoformat()}
 
     food_r, diet_r, sources = await asyncio.gather(

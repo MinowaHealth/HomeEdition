@@ -4,8 +4,8 @@ get_lab_history — latest + trend-grouped lab results.
 Replaces the flat `get_lab_results` tool: instead of one-row-per-test, this
 groups historical values under each test so the LLM can state "LDL has been
 stable at 105 ± 5" rather than needing to diff rows itself. The underlying
-endpoint still returns the latest-per-test; when a full-history endpoint
-is available we'll switch over — today we flag `trend_available:
+endpoint still returns the latest-per-test; when ProviderApp exposes a
+full-history endpoint we'll switch over — today we flag `trend_available:
 false` so the caller knows not to promise trends from a single value.
 """
 from __future__ import annotations

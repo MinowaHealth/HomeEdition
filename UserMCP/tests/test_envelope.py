@@ -7,7 +7,6 @@ block never lies about what was fetched. Tests here pin that promise.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools._envelope import (
     DEFAULT_DISCLAIMER,
     build_envelope,
-    coverage_from_rows,
     empty_envelope,
     window_block,
 )
@@ -82,45 +80,6 @@ def test_window_block_accepts_date_objects():
     w = window_block(date(2026, 4, 1), date(2026, 4, 10))
     assert w["from"] == "2026-04-01"
     assert w["to"] == "2026-04-10"
-
-
-def test_coverage_from_rows_empty():
-    cov = coverage_from_rows(
-        [],
-        window=window_block("2026-04-01", "2026-04-10"),
-        timestamp_field="timestamp",
-        source_field="source",
-    )
-    assert cov["counts"]["rows"] == 0
-    assert cov["counts"]["sources_represented"] == []
-    assert cov["truncated"] is False
-
-
-def test_coverage_from_rows_counts_unique_sources():
-    rows = [
-        {"timestamp": "2026-04-01T08:00:00Z", "source": "manual"},
-        {"timestamp": "2026-04-02T08:00:00Z", "source": "healthkit"},
-        {"timestamp": "2026-04-03T08:00:00Z", "source": "manual"},
-    ]
-    cov = coverage_from_rows(
-        rows,
-        window=window_block("2026-04-01", "2026-04-03"),
-        timestamp_field="timestamp",
-        source_field="source",
-    )
-    assert cov["counts"]["rows"] == 3
-    assert set(cov["counts"]["sources_represented"]) == {"manual", "healthkit"}
-
-
-def test_coverage_from_rows_truncated_passthrough():
-    cov = coverage_from_rows(
-        [{"timestamp": "2026-04-01", "source": "manual"}],
-        window=None,
-        timestamp_field="timestamp",
-        source_field="source",
-        truncated=True,
-    )
-    assert cov["truncated"] is True
 
 
 def test_empty_envelope_flags_reason_as_gap():

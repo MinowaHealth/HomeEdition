@@ -66,6 +66,7 @@ _SESSION = {
 # Endpoints that return a plain list
 _LIST_ENDPOINTS = {
     "/timeframes",
+    "/providers",
     "/conditions",
     "/allergies",
     "/family-history",
@@ -345,3 +346,72 @@ async def test_sse_connect_without_auth_fails(live_server):
     assert body["jsonrpc"] == "2.0"
     assert body["error"]["code"] == mcp_server.JSONRPC_AUTH_ERROR
     assert isinstance(body["error"]["code"], int)
+
+
+# ============================================================================
+# Streamable HTTP transport (/mcp, stateless)
+# ============================================================================
+
+_MCP_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+    "Authorization": "Bearer test-token",
+}
+
+
+async def test_streamable_http_without_auth_fails(live_server):
+    """POST /mcp with no Authorization header must 401 with a JSON-RPC body."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=5.0) as http:
+        r = await http.post(
+            f"{live_server}/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            headers={"Accept": "application/json, text/event-stream"},
+        )
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == mcp_server.JSONRPC_AUTH_ERROR
+
+
+async def test_streamable_http_tools_list_without_initialize(live_server):
+    """Stateless transport must answer without a prior initialize handshake.
+
+    This is the stranded-session regression test: on the SSE transport a
+    reconnect that skipped initialize made every later request fail with
+    'Received request before initialization was complete'
+    (MCP/ClaudeDesktopDisconnects.md). Stateless /mcp has no such state.
+    """
+    import httpx
+
+    async with httpx.AsyncClient(timeout=5.0) as http:
+        r = await http.post(
+            f"{live_server}/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            headers=_MCP_HEADERS,
+        )
+    assert r.status_code == 200
+    tools = r.json()["result"]["tools"]
+    assert any(t["name"] == "search_my_data" for t in tools)
+
+
+async def test_streamable_http_tool_call_builds_client_from_header(live_server):
+    """A tool call over /mcp must resolve its API client from the request's
+    own Authorization header (no SSE session contextvar exists on this path)."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as http:
+        r = await http.post(
+            f"{live_server}/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "get_my_profile", "arguments": {}},
+            },
+            headers=_MCP_HEADERS,
+        )
+    assert r.status_code == 200
+    result = r.json()["result"]
+    text = result["content"][0]["text"]
+    assert "No API client available" not in text
+    assert not result.get("isError"), text

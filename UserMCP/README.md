@@ -1,13 +1,15 @@
-# UserMCP v0.5.0 — Minowa Health Data MCP Server (Python)
+# UserMCP v0.5.0 — SeenWhole Health Data MCP Server (Python)
 
 **Date**: 2026-04-18
 **Transport**: HTTP/SSE (`GET /sse` + `POST /messages/`)
 **Port**: 13282
+**Deploy account**: `mcpuser`
 
 > **v0.5.0 — task-oriented surface.** The tool roster is now twelve
 > task-oriented tools that each return a standard envelope
 > (`data` + `coverage` + `sources` + `disclaimer` + `next_actions`).
-> The old `get_health_data`/`get_health_snapshot`/`get_health_config`/
+> See the [redesign plan](UserMCPRedesign-Plan.md) for rationale. The
+> old `get_health_data`/`get_health_snapshot`/`get_health_config`/
 > `get_lab_results`/`get_medication_log` tools have been retired; their
 > functionality moved to `get_vitals_timeline`, `get_wearable_summary`,
 > `get_my_active_regimen`, `get_lab_history`, and `get_recent_activity`
@@ -26,11 +28,10 @@ UserMCP (this server, port 13282)
        ↓  HTTP proxy
 UserApp Flask API (:80, /api/v1/*)
        ↓
-PostgreSQL (healthv10 database)
+PostgreSQL (healthv10 database, RLS enforced)
 ```
 
-**Key principle:** UserMCP is a **stateless HTTP proxy** that adds MCP tools on top of the existing Flask API. It never touches the database directly. All data access is scoped to the authenticated user — the Flask API enforces a `user_id` predicate on every query, so users only see their own data.
-
+**Key principle:** UserMCP is a **stateless HTTP proxy** that adds MCP tools on top of the existing Flask API. It never touches the database directly. All data access goes through RLS — users only see their own data.
 
 ---
 
@@ -52,24 +53,30 @@ cp .env.example .env
 python mcp_server.py
 ```
 
-### Docker (part of the appliance stack)
-
-UserMCP has no standalone compose file — it is the `usermcp` service in the
-single canonical appliance stack (`HowToDeploy/docker-compose.local.yml`),
-which also runs pgvector + webapp on the same network. From the repo root:
+### Docker (Local)
 
 ```bash
-DC="docker compose --project-directory . -f HowToDeploy/docker-compose.local.yml --env-file local.env"
+docker-compose up -d
 
-$DC up -d usermcp     # bring up just UserMCP (pulls in its deps)
-$DC logs -f usermcp   # view logs
-$DC stop usermcp      # stop
+# View logs
+docker-compose logs -f
 
-cd UserMCP && ./regen.sh   # rebuild + restart after code changes
+# Stop
+docker-compose down
 ```
 
-Inside the stack, UserMCP reaches the webapp at `http://hb-local-webapp:80`
-(the `API_BASE_URL` default), so no host-IP juggling is needed.
+### Docker + UserApp (Integration Testing)
+
+If you're running UserApp locally and want UserMCP to reach it:
+
+```bash
+# In .env, set:
+API_BASE_URL=http://host.docker.internal:80   # Docker for Mac/Windows
+# or
+API_BASE_URL=http://172.17.0.1:80             # Docker on Linux (host IP)
+
+docker-compose up -d
+```
 
 ---
 
@@ -105,7 +112,7 @@ All twelve tools follow the same envelope contract above.
 
 | Tool | Purpose |
 |------|---------|
-| `get_my_profile` | Display name, timezone, dietary settings. |
+| `get_my_profile` | Display name, timezone, dietary settings, authorized delegates. |
 | `get_my_active_regimen` | Active medications, supplements, stacks, timeframes, reminders. |
 | `get_my_clinical_history` | Conditions, allergies, family/surgical history, vaccinations. Flags medication/allergen name overlaps in `alerts`. |
 
@@ -155,7 +162,7 @@ All twelve tools follow the same envelope contract above.
 
 | Name | Purpose |
 |------|---------|
-| `/visit-prep` | Packet for an upcoming appointment: regimen, vitals, labs, history, open concerns, allergy warnings. |
+| `/visit-prep [provider?]` | Packet for an upcoming appointment: regimen, vitals, labs, history, open concerns, allergy warnings. |
 | `/weekly-check-in` | 7-day rollup across wearables, vitals, adherence, food — one narrative answer. |
 
 ---
@@ -190,7 +197,7 @@ UserMCP uses SSE transport, so Claude Desktop connects via the `supergateway` br
 
 API keys do not expire. Revoke via `DELETE /api/v1/api-keys/<id>` or the web UI.
 
-> **Tip**: From another device on the LAN, replace `localhost:13282` with the appliance's LAN IP. See `HowToDeploy/MacDeploy.md` for full examples.
+> **Tip**: For remote servers, replace `localhost:13282` with the server's IP or use an SSH tunnel. See `HowToDeploy/MacDeploy.md` for full examples.
 
 ---
 
@@ -219,43 +226,46 @@ pytest tests/ -v
 ### Smoke Testing (Docker)
 
 ```bash
-docker compose --project-directory . -f HowToDeploy/docker-compose.local.yml --env-file local.env up -d usermcp
+docker-compose up -d
 curl -s http://localhost:13282/health
 # → {"status": "ok"}
 ```
 
 ### Integration Testing (Against Live API)
 
-1. Bring up the appliance stack from the repo root (`docker compose --project-directory . -f HowToDeploy/docker-compose.local.yml --env-file local.env up -d`)
-2. Get a valid token: `cd UserMCP && ./get-token.sh`
-3. UserMCP reaches the webapp at `http://hb-local-webapp:80` inside the stack (the `API_BASE_URL` default)
-4. Test tool calls against `http://localhost:13282`
+1. Start UserApp locally (`cd UserApp && ./start.sh`)
+2. Get a valid token: `./get-token.sh`
+3. Set `API_BASE_URL=http://host.docker.internal:80` in `.env`
+4. `docker-compose up -d` and test tool calls
 
 ---
 
 ## Deployment
 
-UserMCP runs as one of the three appliance containers (see `HowToDeploy/MacDeploy.md`). It starts with the rest of the stack:
+UserMCP deploys to the `mcpuser` account (not `buddy` — that's UserApp).
 
 ```bash
-# From the repo root
-docker compose --project-directory . -f HowToDeploy/docker-compose.local.yml --env-file local.env up -d usermcp
+# repoman@<server> pulls the repo; code is distributed to shell accounts
+ssh mcpuser@<server>
+cd ~/UserMCP
+./setup.sh        # Creates .env, builds container
+docker-compose up -d
 
 # Verify
 curl -s http://localhost:13282/health
 ```
 
-See `HowToDeploy/MacDeploy.md` for the full appliance walkthrough.
+See `HowToDeploy/PrototypeLinux.md` (Phase 5) or `HowToDeploy/PilotLinux.md` for full deployment steps.
 
 ---
 
 ## Security & Privacy
 
-- **All data access is scoped to the authenticated user** — the Flask API enforces a `user_id` predicate on every query, so users only see their own data
+- **All data access is RLS-enforced** — users only see their own data
 - **No credentials stored in MCP server** — only the bearer token (API key) is used
 - **API keys (`hbk_`) do not expire** — revoke via `DELETE /api/v1/api-keys/<id>` or web UI
 - **No direct database access** — all queries go through the Flask API
-- **SSE transport** — runs on the home LAN (`localhost:13282`)
+- **SSE transport** — for local or tunnel-protected use. Production uses Cloudflare Tunnel.
 
 ---
 

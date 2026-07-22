@@ -15,7 +15,7 @@ from typing import Any, Dict
 from mcp.types import Tool
 
 from tools._envelope import build_envelope
-from tools._shape import as_dict, as_list
+from tools._shape import as_list
 from tools._sources import fetch_sources
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,8 @@ async def _safe_call(client: Any, path: str, **kwargs) -> Dict[str, Any]:
 
 
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
+    # Home Edition: no /providers endpoint (provider/delegation features
+    # removed) — profile is identity + dietary only.
     session_r, dietary_r, sources = await asyncio.gather(
         _safe_call(client, "/session", method="GET"),
         _safe_call(client, "/dietary-settings", method="GET"),

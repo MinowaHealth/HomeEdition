@@ -158,13 +158,3 @@ async def fetch_sources(api_client: Any) -> List[Dict[str, Any]]:
 
     _sources_cache.set({"entries": entries})
     return entries
-
-
-def sources_block_sync(entries: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
-    """Return an already-fetched sources list or an empty list.
-
-    For tools that want to build the envelope without awaiting the fetch
-    (e.g. static responses like `send_feedback`). Prefer `await fetch_sources()`
-    anywhere the tool can afford the 3 parallel calls.
-    """
-    return entries or []
