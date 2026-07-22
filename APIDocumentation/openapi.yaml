@@ -686,6 +686,21 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/blood-pressure/sources:
+    get:
+      operationId: listBloodPressureSources
+      tags: [vitals]
+      summary: Distinct BP collection sources with counts and date bounds
+      responses:
+        "200":
+          description: Source inventory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BloodPressureSourcesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/blood-pressure/{reading_id}:
     delete:
       operationId: deleteBloodPressure
@@ -815,6 +830,15 @@ paths:
         - $ref: "#/components/parameters/endDate"
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/offset"
+        - name: sources
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Comma-separated collection sources to include (source = the
+            reading's `device`, with NULL exposed as `manual`). Omit for all.
+            Valid names via GET /api/v1/blood-pressure/sources.
       responses:
         "200":
           description: Paginated readings
@@ -1698,6 +1722,50 @@ components:
           description: |
             UTC ISO-8601 timestamp. Backed by the DB column `measured_at`
             (renamed on the wire for consistency with other vitals endpoints).
+        source:
+          type: string
+          description: |
+            Collection source — the DB `device` column, with NULL exposed
+            as `manual`. Filterable via the `sources` query param.
+        position:
+          type:
+            - string
+            - "null"
+          description: Body position during the reading (e.g. seated, supine).
+        arm:
+          type:
+            - string
+            - "null"
+          description: Arm/site of the cuff (e.g. left, left wrist).
+        notes:
+          type:
+            - string
+            - "null"
+
+    BloodPressureSourcesResponse:
+      type: object
+      required: [sources]
+      properties:
+        sources:
+          type: array
+          items:
+            type: object
+            required: [source, readings, first, last]
+            properties:
+              source:
+                type: string
+              readings:
+                type: integer
+              first:
+                type:
+                  - string
+                  - "null"
+                format: date-time
+              last:
+                type:
+                  - string
+                  - "null"
+                format: date-time
 
     BloodPressureCreate:
       type: object

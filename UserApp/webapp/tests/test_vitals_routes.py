@@ -53,6 +53,97 @@ class TestGetBloodPressure:
         assert data['pagination']['total'] == 0
         assert data['pagination']['has_more'] is False
 
+    def test_null_device_maps_to_manual_source(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = [
+            {
+                '_total': 1,
+                'id': uuid.uuid4(),
+                'measured_at': datetime(2026, 7, 18, 21, 36),
+                'systolic': 132, 'diastolic': 60, 'pulse': 76,
+                'device': None, 'position': None, 'arm': None, 'notes': None,
+            }
+        ]
+        entry = client.get('/api/v1/blood-pressure', headers=auth_headers).get_json()['entries'][0]
+        assert entry['source'] == 'manual'
+        assert 'device' not in entry
+
+    def test_device_becomes_source_with_position_arm_notes(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = [
+            {
+                '_total': 1,
+                'id': uuid.uuid4(),
+                'measured_at': datetime(2026, 7, 18, 21, 36),
+                'systolic': 132, 'diastolic': 60, 'pulse': 76,
+                'device': 'cuff meter', 'position': 'supine',
+                'arm': 'left wrist', 'notes': 'untrusted: supine cuff import',
+            }
+        ]
+        entry = client.get('/api/v1/blood-pressure', headers=auth_headers).get_json()['entries'][0]
+        assert entry['source'] == 'cuff meter'
+        assert entry['position'] == 'supine'
+        assert entry['arm'] == 'left wrist'
+        assert entry['notes'] == 'untrusted: supine cuff import'
+
+    def test_sources_filter_devices_and_manual(self, client, mock_db, auth_headers):
+        """?sources=manual,cuff meter -> (device = ANY(%s) OR device IS NULL)."""
+        conn, cur = mock_db
+        cur.fetchall.return_value = []
+
+        resp = client.get(
+            '/api/v1/blood-pressure?sources=manual,cuff meter',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        query_text = str(cur.execute.call_args.args[0])
+        assert 'device = ANY' in query_text
+        assert 'device IS NULL' in query_text
+        # params: [tenant_id, user_id, devices_list, limit, offset]
+        assert cur.execute.call_args.args[1][2] == ['cuff meter']
+
+    def test_sources_filter_devices_only(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = []
+
+        resp = client.get(
+            '/api/v1/blood-pressure?sources=cuff meter',
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        query_text = str(cur.execute.call_args.args[0])
+        assert 'device = ANY' in query_text
+        assert 'device IS NULL' not in query_text
+
+    def test_sources_blank_400(self, client, mock_db, auth_headers):
+        resp = client.get(
+            '/api/v1/blood-pressure?sources=%2C', headers=auth_headers)
+        assert resp.status_code == 400
+
+
+class TestGetBloodPressureSources:
+    def test_lists_sources_with_counts(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = [
+            {'source': 'manual', 'readings': 687,
+             'first': datetime(2023, 10, 18), 'last': datetime(2026, 7, 19, 1, 4)},
+            {'source': 'cuff meter', 'readings': 11,
+             'first': datetime(2026, 7, 18, 21, 36), 'last': datetime(2026, 7, 19, 0, 20)},
+        ]
+        resp = client.get('/api/v1/blood-pressure/sources', headers=auth_headers)
+        assert resp.status_code == 200
+        sources = resp.get_json()['sources']
+        assert len(sources) == 2
+        assert sources[0]['readings'] == 687
+        assert sources[1]['source'] == 'cuff meter'
+        assert sources[1]['first'] == '2026-07-18T21:36:00'
+
+    def test_empty(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.return_value = []
+        resp = client.get('/api/v1/blood-pressure/sources', headers=auth_headers)
+        assert resp.get_json()['sources'] == []
+
 
 class TestLogBloodPressure:
     def test_creates_reading(self, client, mock_db, auth_headers):

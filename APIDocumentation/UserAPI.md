@@ -728,6 +728,12 @@ Blood pressure, temperature, weight, and health metrics.
 
 ### GET /api/v1/blood-pressure
 
+**Query params:** `start_date` / `end_date` (YYYY-MM-DD), `limit` / `offset`,
+and `sources` — comma-separated collection sources to include (a source is
+the reading's `device` value, with readings that have no device exposed as
+`manual`). Omit `sources` for all. Discover valid names via
+`GET /api/v1/blood-pressure/sources`.
+
 **Response (200):**
 ```json
 [
@@ -736,9 +742,31 @@ Blood pressure, temperature, weight, and health metrics.
     "systolic": 120,
     "diastolic": 80,
     "pulse": 72,
-    "timestamp": "2026-02-24T08:00:00"
+    "timestamp": "2026-02-24T08:00:00",
+    "source": "manual",
+    "position": "seated",
+    "arm": "left",
+    "notes": null
   }
 ]
+```
+
+**Errors:** `400` if `sources` is present but names no source.
+
+### GET /api/v1/blood-pressure/sources
+
+Distinct blood pressure collection sources for the user, with counts and
+date bounds — for clients that record BP through more than one method and
+want to filter `GET /api/v1/blood-pressure?sources=...`.
+
+**Response (200):**
+```json
+{
+  "sources": [
+    {"source": "manual", "readings": 687, "first": "2023-10-18T00:00:00+00:00", "last": "2026-07-19T01:04:00+00:00"},
+    {"source": "cuff meter", "readings": 11, "first": "2026-07-18T21:36:00+00:00", "last": "2026-07-19T00:20:00+00:00"}
+  ]
+}
 ```
 
 ### POST /api/v1/blood-pressure

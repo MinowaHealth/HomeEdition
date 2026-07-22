@@ -52,7 +52,10 @@ def get_blood_pressure():
     """Get a paginated list of blood pressure readings.
 
     Optional query params: start_date, end_date (YYYY-MM-DD) for date filtering;
-    limit, offset for pagination.
+    limit, offset for pagination; sources — comma-separated collection sources
+    to include (source = the device column, with NULL exposed as 'manual').
+    Omit sources for all. Each row carries source, position, arm, and notes so
+    callers can tell collection methods apart.
     """
     from utils import parse_date_range_params
     start_date, end_date, err = parse_date_range_params()
@@ -60,8 +63,6 @@ def get_blood_pressure():
         return err
 
     limit, offset = parse_pagination_params()
-    conn = get_db_connection()
-    cur = conn.cursor()
 
     conditions: list = [sql.SQL("tenant_id = %s AND user_id = %s")]
     params: list = [g.user.get('tenant_id', 1), get_user_id()]
@@ -72,15 +73,34 @@ def get_blood_pressure():
         conditions.append(sql.SQL("measured_at < %s + INTERVAL '1 day'"))
         params.append(end_date)
 
+    sources_param = request.args.get('sources')
+    if sources_param:
+        names = [s.strip() for s in sources_param.split(',') if s.strip()]
+        if not names:
+            return jsonify({'error': 'sources must name at least one source'}), 400
+        devices = [n for n in names if n != 'manual']
+        src_conds = []
+        if devices:
+            src_conds.append(sql.SQL("device = ANY(%s)"))
+            params.append(devices)
+        if 'manual' in names:
+            src_conds.append(sql.SQL("device IS NULL"))
+        conditions.append(
+            sql.SQL("(") + sql.SQL(" OR ").join(src_conds) + sql.SQL(")"))
+
     where_sql = (
         sql.SQL("WHERE ") + sql.SQL(" AND ").join(conditions)
         if conditions
         else sql.SQL("")
     )
 
+    conn = get_db_connection()
+    cur = conn.cursor()
+
     query = sql.SQL("""
         SELECT count(*) OVER() AS _total,
-               id, measured_at, systolic, diastolic, pulse
+               id, measured_at, systolic, diastolic, pulse,
+               device, position, arm, notes
         FROM health_blood_pressure_readings
         {where}
         ORDER BY measured_at DESC
@@ -99,6 +119,7 @@ def get_blood_pressure():
         reading['id'] = str(reading['id'])
         if reading.get('measured_at'):
             reading['timestamp'] = reading.pop('measured_at').isoformat()
+        reading['source'] = reading.pop('device', None) or 'manual'
 
     has_more = offset + len(readings) < total
     resp = jsonify(paginated_response(readings, total, limit, offset, key='entries'))
@@ -108,6 +129,43 @@ def get_blood_pressure():
         # has_more signal rather than "len == hard cap".
         resp.headers['X-Truncated'] = 'true'
     return resp
+
+
+@bp.route('/blood-pressure/sources', methods=['GET'])
+@require_auth
+def get_blood_pressure_sources():
+    """Distinct blood pressure collection sources for this user.
+
+    A source is the reading's device column, with NULL exposed as 'manual'.
+    Returns each source with its reading count and first/last measured_at, so
+    clients with multiple collection methods can discover what exists and
+    filter GET /blood-pressure?sources=... accordingly.
+
+    Aggregate counts and date bounds only — no reading values; scoped to the
+    authenticated user (explicit tenant_id/user_id predicates; no RLS on
+    this box).
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT COALESCE(device, 'manual') AS source,
+               count(*) AS readings,
+               min(measured_at) AS first,
+               max(measured_at) AS last
+        FROM health_blood_pressure_readings
+        WHERE tenant_id = %s AND user_id = %s
+        GROUP BY COALESCE(device, 'manual')
+        ORDER BY readings DESC
+    """, (g.user.get('tenant_id', 1), get_user_id()))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    for r in rows:
+        r['first'] = r['first'].isoformat() if r.get('first') else None
+        r['last'] = r['last'].isoformat() if r.get('last') else None
+
+    return jsonify({'sources': rows})
 
 
 @bp.route('/blood-pressure', methods=['POST'])
