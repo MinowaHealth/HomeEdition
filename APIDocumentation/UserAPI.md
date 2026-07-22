@@ -506,7 +506,38 @@ Combined view of all recent log entries across all types.
 ]
 ```
 
-The `type` field distinguishes: `health_input`, `food`, `blood_pressure`, `temperature`, `weight`, `steps`, `heart_rate`, `sleep`, `nutrition`, `medication`.
+The `type` field distinguishes: `health_input`, `food`, `blood_pressure`, `temperature`, `weight`, `steps`, `heart_rate`, `sleep`, `nutrition`, `medication`, `observation`, `sync`.
+
+**Query params:** `kind` (optional) filters to one slice: `medication`, `food`, `observation`, `sync`. The `applied` block echoes the filter when honored; unknown kinds run unfiltered with `applied.kind: null`.
+
+`type: observation` entries carry patient-reported observations from `health_observations`:
+```json
+{
+  "id": "uuid",
+  "timestamp": "2026-07-14T08:15:00+00:00",
+  "type": "observation",
+  "description": "Symptom: mild headache after lunch",
+  "category": "symptom",
+  "content": "mild headache after lunch",
+  "severity": 3,
+  "tags": ["headache"]
+}
+```
+
+`type: sync` entries are data-source sync events from `data_sync_log` — one per terminal Garmin sync / HealthKit import run (forward-only from 2026-07-14; see `DataSyncLog-Plan1.md`):
+```json
+{
+  "id": "uuid",
+  "timestamp": "2026-07-14T09:12:44+00:00",
+  "type": "sync",
+  "description": "Garmin sync completed",
+  "source": "garmin",
+  "status": "completed",
+  "detail": {"daily_summaries": 1, "sleep": 1, "heart_rate": 1440, "stress": 96},
+  "error_message": null,
+  "job_id": "uuid"
+}
+```
 
 ---
 

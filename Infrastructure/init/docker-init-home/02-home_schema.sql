@@ -1577,6 +1577,29 @@ CREATE TABLE IF NOT EXISTS public.garmin_sync_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_garmin_sync_tenant_user_status ON public.garmin_sync_jobs USING btree (tenant_id, user_id, status);
 
+-- Sync history: one append-only row per terminal sync/import run (Garmin,
+-- HealthKit, future ecosystems), surfaced by /all-logs as type='sync'.
+-- Forward-only — no backfill of historical job rows.
+-- (Enterprise mirror: data_sync_log, 2026-07-14 delta; RLS stripped here —
+-- app-level user_id scoping.)
+CREATE TABLE IF NOT EXISTS public.data_sync_log (
+    tenant_id SMALLINT NOT NULL DEFAULT 1,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    source text NOT NULL,
+    job_id uuid,
+    status text NOT NULL,
+    detail jsonb,
+    error_message text,
+    synced_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id, user_id) REFERENCES public.users(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT data_sync_log_status_check CHECK ((status = ANY (ARRAY['completed'::text, 'failed'::text])))
+);
+
+CREATE INDEX IF NOT EXISTS idx_data_sync_log_user_time ON public.data_sync_log USING btree (tenant_id, user_id, synced_at DESC);
+
 -- ============================================================================
 -- HEALTHKIT INTEGRATION
 -- ============================================================================

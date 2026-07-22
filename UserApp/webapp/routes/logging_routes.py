@@ -596,7 +596,7 @@ def get_all_logs():
     input_id) and `sources_truncated` — sources whose per-source LIMIT
     filled up, meaning the window may hold more rows than were fetched.
 
-    Implementation runs eight per-source SELECTs (LIMIT 100 each, 50 for
+    Implementation runs ten per-source SELECTs (LIMIT 100 each, 50 for
     sleep/nutrition), merges in Python, and slices the requested page.
     A UNION-as-CTE rewrite is deferred; see UserAPIPagination plan Option A.
     """
@@ -614,12 +614,15 @@ def get_all_logs():
     KIND_SOURCES = {
         'medication': {'health_input_log', 'medication_metrics'},
         'food': {'food'},
+        'observation': {'observations'},
+        'sync': {'sync'},
     }
     ALL_SOURCES = {'health_input_log', 'blood_pressure', 'temperature', 'weight',
-                   'blood_glucose', 'sleep_nutrition', 'medication_metrics', 'food'}
-    # Unknown / unmappable kinds (e.g. 'observation') run everything and are
-    # reported as not applied — honesty over rejection, the client enum will
-    # drift before this route does.
+                   'blood_glucose', 'sleep_nutrition', 'medication_metrics', 'food',
+                   'observations', 'sync'}
+    # Unknown / unmappable kinds run everything and are reported as not
+    # applied — honesty over rejection, the client enum will drift before
+    # this route does.
     applied_kind = kind if kind in KIND_SOURCES else None
     sources = KIND_SOURCES.get(kind, ALL_SOURCES)
     if input_id:
@@ -992,6 +995,64 @@ def get_all_logs():
             'potassium_mg': notes_obj.get('potassium_mg') if isinstance(notes_obj, dict) else None,
             'meal': notes_obj.get('meal') if isinstance(notes_obj, dict) else None,
             'is_freeform': log['free_text'] is not None
+        })
+
+    # Get patient-reported observations
+    obs_logs = []
+    if 'observations' in sources:
+        obs_date_sql, obs_date_params = date_filter(sql.Identifier('observed_at'))
+        cur.execute(sql.SQL("""
+            SELECT id, observed_at, category, content, severity, tags
+            FROM health_observations
+            WHERE tenant_id = %s AND user_id = %s
+            {date_filter}
+            ORDER BY observed_at DESC
+            LIMIT 100
+        """).format(date_filter=obs_date_sql), [tenant_id, user_id] + obs_date_params)
+        obs_logs = cur.fetchall()
+        if len(obs_logs) == 100:
+            sources_truncated.append('observations')
+    for log in obs_logs:
+        category = log['category'] or 'observation'
+        all_logs.append({
+            'id': str(log['id']),
+            'timestamp': log['observed_at'].isoformat(),
+            'type': 'observation',
+            'description': f"{category.capitalize()}: {log['content']}",
+            'stack': None,
+            'category': log['category'],
+            'content': log['content'],
+            'severity': log['severity'],
+            'tags': log['tags'],
+        })
+
+    # Get data-source sync events (Garmin, HealthKit, future ecosystems)
+    sync_logs = []
+    if 'sync' in sources:
+        sync_date_sql, sync_date_params = date_filter(sql.Identifier('synced_at'))
+        cur.execute(sql.SQL("""
+            SELECT id, synced_at, source, job_id, status, detail, error_message
+            FROM data_sync_log
+            WHERE tenant_id = %s AND user_id = %s
+            {date_filter}
+            ORDER BY synced_at DESC
+            LIMIT 100
+        """).format(date_filter=sync_date_sql), [tenant_id, user_id] + sync_date_params)
+        sync_logs = cur.fetchall()
+        if len(sync_logs) == 100:
+            sources_truncated.append('sync')
+    for log in sync_logs:
+        all_logs.append({
+            'id': str(log['id']),
+            'timestamp': log['synced_at'].isoformat(),
+            'type': 'sync',
+            'description': f"{log['source'].capitalize()} sync {log['status']}",
+            'stack': None,
+            'source': log['source'],
+            'status': log['status'],
+            'detail': log['detail'],
+            'error_message': log['error_message'],
+            'job_id': str(log['job_id']) if log['job_id'] else None,
         })
 
     cur.close()

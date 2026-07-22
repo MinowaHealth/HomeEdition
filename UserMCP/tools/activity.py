@@ -28,9 +28,9 @@ def schema() -> Tool:
         name="get_recent_activity",
         description=(
             "Return the user's recent activity feed: medication/supplement "
-            "logs, food logs, and observations, in a single chronological "
-            "stream. Filter by kind or by input_id. Default window is 14 days "
-            "(max 90)."
+            "logs, food logs, observations, and data-source sync events "
+            "(Garmin, HealthKit), in a single chronological stream. Filter "
+            "by kind or by input_id. Default window is 14 days (max 90)."
         ),
         inputSchema={
             "type": "object",
@@ -40,7 +40,7 @@ def schema() -> Tool:
                 "to": {"type": "string"},
                 "kind": {
                     "type": "string",
-                    "enum": ["all", "medication", "food", "observation"],
+                    "enum": ["all", "medication", "food", "observation", "sync"],
                     "default": "all",
                 },
                 "input_id": {

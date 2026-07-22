@@ -179,6 +179,12 @@ def process_garmin_sync(user_id: str, job_id: str, garth_session_b64: str,
             WHERE id = %s::uuid AND user_id = %s
         """, (json.dumps(counts), job_id, user_id))
 
+        # User-visible sync history (surfaced by /all-logs as type='sync')
+        cur.execute("""
+            INSERT INTO data_sync_log (tenant_id, user_id, source, job_id, status, detail, synced_at)
+            VALUES (1, %s::uuid, 'garmin', %s::uuid, 'completed', %s::jsonb, now())
+        """, (user_id, job_id, json.dumps(counts)))
+
         # Update last sync time in credentials
         cur.execute("""
             UPDATE garmin_credentials
@@ -214,6 +220,11 @@ def process_garmin_sync(user_id: str, job_id: str, garth_session_b64: str,
                         error_message = %s
                     WHERE id = %s::uuid AND user_id = %s
                 """, (error_msg, job_id, user_id))
+
+                cur.execute("""
+                    INSERT INTO data_sync_log (tenant_id, user_id, source, job_id, status, error_message, synced_at)
+                    VALUES (1, %s::uuid, 'garmin', %s::uuid, 'failed', %s, now())
+                """, (user_id, job_id, error_msg))
 
                 conn.commit()
         except Exception as update_error:

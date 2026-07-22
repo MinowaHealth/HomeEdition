@@ -8,6 +8,7 @@ runs all background work in-process (no broker).
 """
 
 
+import json
 import threading
 import shutil
 import logging
@@ -120,6 +121,13 @@ def process_healthkit_job(user_id: str, job_id: str, export_path: Path,
                 processed_records = %s
             WHERE id = %s::uuid AND user_id = %s
         """, (total, total, job_id, user_id))
+
+        # User-visible sync history (surfaced by /all-logs as type='sync') —
+        # keeps the per-category counts the job table flattens away
+        cur.execute("""
+            INSERT INTO data_sync_log (tenant_id, user_id, source, job_id, status, detail, synced_at)
+            VALUES (1, %s::uuid, 'healthkit', %s::uuid, 'completed', %s::jsonb, now())
+        """, (user_id, job_id, json.dumps(counts)))
         conn.commit()
         cur.close()
         
@@ -147,6 +155,10 @@ def process_healthkit_job(user_id: str, job_id: str, export_path: Path,
                     error_message = %s
                 WHERE id = %s::uuid AND user_id = %s
             """, (error_msg, job_id, user_id))
+            cur.execute("""
+                INSERT INTO data_sync_log (tenant_id, user_id, source, job_id, status, error_message, synced_at)
+                VALUES (1, %s::uuid, 'healthkit', %s::uuid, 'failed', %s, now())
+            """, (user_id, job_id, error_msg))
             conn.commit()
             cur.close()
         except Exception as update_error:

@@ -634,15 +634,16 @@ class TestGetHealthInputLog:
 
 
 # ============================================================================
-# GET /all-logs — the chunky one (six per-source SELECTs merged)
+# GET /all-logs — the chunky one (ten per-source SELECTs merged)
 # ============================================================================
 
 
 class TestGetAllLogs:
     def test_merges_all_sources(self, client, mock_db, auth_headers):
-        """Each fetchall returns a list — the route runs 8 SELECTs in order:
+        """Each fetchall returns a list — the route runs 10 SELECTs in order:
         health_input_log, BP, temperature, weight, blood glucose,
-        sleep/nutrition metrics, medication metrics, food."""
+        sleep/nutrition metrics, medication metrics, food, observations,
+        sync events."""
         conn, cur = mock_db
         cur.fetchall.side_effect = [
             # health_input_log
@@ -735,6 +736,25 @@ class TestGetAllLogs:
                 'free_text': None,
                 'food_name': 'Salad',
             }],
+            # observations
+            [{
+                'id': uuid.uuid4(),
+                'observed_at': datetime(2026, 4, 19, 10, 0),
+                'category': 'symptom',
+                'content': 'mild headache',
+                'severity': 3,
+                'tags': ['headache'],
+            }],
+            # sync events
+            [{
+                'id': uuid.uuid4(),
+                'synced_at': datetime(2026, 4, 19, 11, 0),
+                'source': 'garmin',
+                'job_id': uuid.uuid4(),
+                'status': 'completed',
+                'detail': {'heart_rate': 1440},
+                'error_message': None,
+            }],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -744,14 +764,15 @@ class TestGetAllLogs:
         # All sources represented
         types = {e['type'] for e in body['entries']}
         assert {'health_input', 'blood_pressure', 'temperature', 'weight',
-                'blood_glucose', 'sleep', 'nutrition', 'medication', 'food'} <= types
+                'blood_glucose', 'sleep', 'nutrition', 'medication', 'food',
+                'observation', 'sync'} <= types
         # Sorted DESC by timestamp
         ts = [e['timestamp'] for e in body['entries']]
         assert ts == sorted(ts, reverse=True)
 
     def test_empty_all_sources(self, client, mock_db, auth_headers):
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[], [], [], [], [], [], [], []]
+        cur.fetchall.side_effect = [[]] * 10
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
         assert resp.status_code == 200
@@ -773,7 +794,7 @@ class TestGetAllLogs:
                 'default_unit': None,
                 'stack_name': None,
             }],
-            [], [], [], [], [], [], [],
+            [], [], [], [], [], [], [], [], [],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -797,7 +818,7 @@ class TestGetAllLogs:
                 'notes': 'not-json-but-still-text',
                 'source': None,
             }],
-            [],
+            [], [], [],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -823,9 +844,9 @@ class TestGetAllLogs:
         }
 
     def test_date_filter_applied_to_every_source(self, client, mock_db, auth_headers):
-        """Both window bounds must be bound params on all 8 source SELECTs."""
+        """Both window bounds must be bound params on all 10 source SELECTs."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 8
+        cur.fetchall.side_effect = [[]] * 10
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2026-05-01&end_date=2026-05-15',
@@ -838,7 +859,7 @@ class TestGetAllLogs:
             and date(2026, 5, 1) in tuple(c.args[1])
             and date(2026, 5, 15) in tuple(c.args[1])
         ]
-        assert len(dated_calls) == 8
+        assert len(dated_calls) == 10
         applied = resp.get_json()['applied']
         assert applied['start_date'] == '2026-05-01'
         assert applied['end_date'] == '2026-05-15'
@@ -861,15 +882,48 @@ class TestGetAllLogs:
         assert cur.fetchall.call_count == 1
         assert resp.get_json()['applied']['kind'] == 'food'
 
-    def test_kind_observation_runs_all_and_reports_not_applied(self, client, mock_db, auth_headers):
-        """'observation' is in the MCP enum but /all-logs has no such source:
-        run everything and report kind as not applied rather than lying."""
+    def test_kind_observation_runs_only_observations_source(self, client, mock_db, auth_headers):
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 8
+        cur.fetchall.side_effect = [[]]
 
         resp = client.get('/api/v1/all-logs?kind=observation', headers=auth_headers)
         assert resp.status_code == 200
-        assert cur.fetchall.call_count == 8
+        assert cur.fetchall.call_count == 1
+        assert resp.get_json()['applied']['kind'] == 'observation'
+
+    def test_kind_sync_runs_only_sync_source(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[{
+            'id': uuid.uuid4(),
+            'synced_at': datetime(2026, 7, 14, 9, 0),
+            'source': 'healthkit',
+            'job_id': None,
+            'status': 'failed',
+            'detail': None,
+            'error_message': 'zip parse error',
+        }]]
+
+        resp = client.get('/api/v1/all-logs?kind=sync', headers=auth_headers)
+        assert resp.status_code == 200
+        assert cur.fetchall.call_count == 1
+        body = resp.get_json()
+        assert body['applied']['kind'] == 'sync'
+        entry = body['entries'][0]
+        assert entry['type'] == 'sync'
+        assert entry['source'] == 'healthkit'
+        assert entry['status'] == 'failed'
+        assert entry['error_message'] == 'zip parse error'
+        assert entry['description'] == 'Healthkit sync failed'
+
+    def test_kind_unknown_runs_all_and_reports_not_applied(self, client, mock_db, auth_headers):
+        """A kind the route doesn't map runs everything and reports kind as
+        not applied rather than lying."""
+        conn, cur = mock_db
+        cur.fetchall.side_effect = [[]] * 10
+
+        resp = client.get('/api/v1/all-logs?kind=telemetry', headers=auth_headers)
+        assert resp.status_code == 200
+        assert cur.fetchall.call_count == 10
         assert resp.get_json()['applied']['kind'] is None
 
     def test_input_id_runs_only_health_input_log(self, client, mock_db, auth_headers):
@@ -915,7 +969,7 @@ class TestGetAllLogs:
         conn, cur = mock_db
         cur.fetchall.side_effect = [
             [self._hil_row() for _ in range(100)],
-            [], [], [], [], [], [], [],
+            [], [], [], [], [], [], [], [], [],
         ]
 
         resp = client.get(
@@ -929,7 +983,7 @@ class TestGetAllLogs:
         """start_date == end_date is a full-day window on every source, not
         an empty or rejected one (the Bug-2 shape, pinned here too)."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 8
+        cur.fetchall.side_effect = [[]] * 10
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2026-05-18&end_date=2026-05-18',
@@ -941,13 +995,13 @@ class TestGetAllLogs:
             if len(c.args) == 2
             and tuple(c.args[1]).count(date(2026, 5, 18)) == 2
         ]
-        assert len(dated_calls) == 8
+        assert len(dated_calls) == 10
 
     def test_empty_window_never_falls_back_to_newest(self, client, mock_db, auth_headers):
         """A window with no data must return empty — never the unfiltered
         newest-100 rows (the original Bug 1 behavior)."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 8
+        cur.fetchall.side_effect = [[]] * 10
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2030-01-01&end_date=2030-01-31',
@@ -961,9 +1015,9 @@ class TestGetAllLogs:
             and date(2030, 1, 1) in tuple(c.args[1])
             and date(2030, 1, 31) in tuple(c.args[1])
         ]
-        assert len(dated_calls) == 8, (
+        assert len(dated_calls) == 10, (
             'a source SELECT ran without the window bounds — newest-rows fallback')
-        assert cur.fetchall.call_count == 8
+        assert cur.fetchall.call_count == 10
 
 
 # ============================================================================
@@ -1869,3 +1923,32 @@ class TestAuthRequired:
                 headers={'Authorization': 'Bearer bad'},
             )
             assert resp.status_code == 401
+
+
+# ============================================================================
+# data_sync_log worker writes — source-level pins (the workers hit Garmin /
+# HealthKit and a live DB, so pin the INSERTs at the source level like the
+# adherence SQL pins in test_route_contracts.py)
+# ============================================================================
+
+
+class TestSyncLogWorkerPins:
+    def test_garmin_worker_writes_sync_log_both_paths(self):
+        import inspect
+        import garmin_worker
+        src = inspect.getsource(garmin_worker.process_garmin_sync)
+        assert src.count("INSERT INTO data_sync_log") == 2, (
+            "garmin_worker must write data_sync_log on both the completed "
+            "and failed paths")
+        assert "'garmin', %s::uuid, 'completed'" in src
+        assert "'garmin', %s::uuid, 'failed'" in src
+
+    def test_healthkit_worker_writes_sync_log_both_paths(self):
+        import inspect
+        import healthkit_worker
+        src = inspect.getsource(healthkit_worker.process_healthkit_job)
+        assert src.count("INSERT INTO data_sync_log") == 2, (
+            "healthkit_worker must write data_sync_log on both the completed "
+            "and failed paths")
+        assert "'healthkit', %s::uuid, 'completed'" in src
+        assert "'healthkit', %s::uuid, 'failed'" in src
