@@ -15,6 +15,7 @@ from typing import Any, Dict
 from mcp.types import Tool
 
 from tools._envelope import build_envelope, window_block
+from tools._links import absolutize_links
 from tools._sources import fetch_sources
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,10 @@ def schema() -> Tool:
         name="get_recent_activity",
         description=(
             "Return the user's recent activity feed: medication/supplement "
-            "logs, food logs, observations, and data-source sync events "
-            "(Garmin, HealthKit), in a single chronological stream. Filter "
-            "by kind or by input_id. Default window is 14 days (max 90)."
+            "logs, food logs, observations, data-source sync events "
+            "(Garmin, HealthKit), and document arrivals (uploads, faxes, "
+            "saved AI session summaries), in a single chronological stream. "
+            "Filter by kind or by input_id. Default window is 14 days (max 90)."
         ),
         inputSchema={
             "type": "object",
@@ -40,7 +42,8 @@ def schema() -> Tool:
                 "to": {"type": "string"},
                 "kind": {
                     "type": "string",
-                    "enum": ["all", "medication", "food", "observation", "sync"],
+                    "enum": ["all", "medication", "food", "observation", "sync",
+                             "document"],
                     "default": "all",
                 },
                 "input_id": {
@@ -118,6 +121,9 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
         {k: v for k, v in e.items() if k != "stack"} if isinstance(e, dict) else e
         for e in events
     ]
+    for e in events:
+        if isinstance(e, dict) and e.get("links"):
+            e["links"] = absolutize_links(e["links"])
 
     truncated = bool(pagination and pagination.get("has_more"))
 

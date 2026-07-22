@@ -69,15 +69,17 @@ CONTRACT = {
         },
     },
     "kind": {
-        "mcp_enum": ["all", "medication", "food", "observation", "sync"],
-        "route_applies": ["food", "medication", "observation", "sync"],
+        "mcp_enum": ["all", "medication", "food", "observation", "sync",
+                     "document"],
+        "route_applies": ["food", "medication", "observation", "sync",
+                          "document"],
     },
     "scopes": ["all", "allergies", "conditions",
                "documents", "food", "inputs", "notes", "observations"],
     "modes": ["auto", "semantic", "keyword"],
 }
 
-CONTRACT_SHA256 = "60a063bec93b376132527b114e2a80bd4a2ab7c5002c17300f4603d92560d43b"
+CONTRACT_SHA256 = "7bc86e8b7eb545a281a759089ef0a2f204289a7e090ee526f52608dc67cbae08"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 

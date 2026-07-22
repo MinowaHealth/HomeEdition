@@ -506,9 +506,9 @@ Combined view of all recent log entries across all types.
 ]
 ```
 
-The `type` field distinguishes: `health_input`, `food`, `blood_pressure`, `temperature`, `weight`, `steps`, `heart_rate`, `sleep`, `nutrition`, `medication`, `observation`, `sync`.
+The `type` field distinguishes: `health_input`, `food`, `blood_pressure`, `temperature`, `weight`, `steps`, `heart_rate`, `sleep`, `nutrition`, `medication`, `observation`, `sync`, `document`.
 
-**Query params:** `kind` (optional) filters to one slice: `medication`, `food`, `observation`, `sync`. The `applied` block echoes the filter when honored; unknown kinds run unfiltered with `applied.kind: null`.
+**Query params:** `kind` (optional) filters to one slice: `medication`, `food`, `observation`, `sync`, `document`. The `applied` block echoes the filter when honored; unknown kinds run unfiltered with `applied.kind: null`.
 
 `type: observation` entries carry patient-reported observations from `health_observations`:
 ```json
@@ -536,6 +536,28 @@ The `type` field distinguishes: `health_input`, `food`, `blood_pressure`, `tempe
   "detail": {"daily_summaries": 1, "sleep": 1, "heart_rate": 1440, "stress": 96},
   "error_message": null,
   "job_id": "uuid"
+}
+```
+
+`type: document` entries are document arrivals read directly from the
+`documents` table (added 2026-07-16) — uploads, inbound faxes, and saved AI
+session summaries. No separate event table: the document row is the event,
+so soft-deleted documents drop out of the feed automatically. Entries carry
+session-gated view links:
+```json
+{
+  "id": "uuid",
+  "timestamp": "2026-07-15T14:00:00+00:00",
+  "type": "document",
+  "description": "AI session summary saved: Lab review — July 2026",
+  "source": "chat_summary",
+  "title": "Lab review — July 2026",
+  "filename": "Lab-review-July-2026.md",
+  "mime_type": "text/markdown",
+  "links": {
+    "web": "/?activity=documents&doc=uuid",
+    "download": "/api/v1/documents/uuid/download"
+  }
 }
 ```
 

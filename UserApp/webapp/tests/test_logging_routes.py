@@ -755,6 +755,15 @@ class TestGetAllLogs:
                 'detail': {'heart_rate': 1440},
                 'error_message': None,
             }],
+            # documents
+            [{
+                'id': uuid.uuid4(),
+                'created_at': datetime(2026, 4, 19, 12, 0),
+                'title': 'Lab scan',
+                'filename': 'labs.pdf',
+                'source': 'upload',
+                'mime_type': 'application/pdf',
+            }],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -772,7 +781,7 @@ class TestGetAllLogs:
 
     def test_empty_all_sources(self, client, mock_db, auth_headers):
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 10
+        cur.fetchall.side_effect = [[]] * 11
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
         assert resp.status_code == 200
@@ -794,7 +803,7 @@ class TestGetAllLogs:
                 'default_unit': None,
                 'stack_name': None,
             }],
-            [], [], [], [], [], [], [], [], [],
+            [], [], [], [], [], [], [], [], [], [],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -818,7 +827,7 @@ class TestGetAllLogs:
                 'notes': 'not-json-but-still-text',
                 'source': None,
             }],
-            [], [], [],
+            [], [], [], [],
         ]
 
         resp = client.get('/api/v1/all-logs', headers=auth_headers)
@@ -844,9 +853,9 @@ class TestGetAllLogs:
         }
 
     def test_date_filter_applied_to_every_source(self, client, mock_db, auth_headers):
-        """Both window bounds must be bound params on all 10 source SELECTs."""
+        """Both window bounds must be bound params on all 11 source SELECTs."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 10
+        cur.fetchall.side_effect = [[]] * 11
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2026-05-01&end_date=2026-05-15',
@@ -859,7 +868,7 @@ class TestGetAllLogs:
             and date(2026, 5, 1) in tuple(c.args[1])
             and date(2026, 5, 15) in tuple(c.args[1])
         ]
-        assert len(dated_calls) == 10
+        assert len(dated_calls) == 11
         applied = resp.get_json()['applied']
         assert applied['start_date'] == '2026-05-01'
         assert applied['end_date'] == '2026-05-15'
@@ -915,15 +924,46 @@ class TestGetAllLogs:
         assert entry['error_message'] == 'zip parse error'
         assert entry['description'] == 'Healthkit sync failed'
 
+    def test_kind_document_runs_only_documents_source(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        doc_id = uuid.uuid4()
+        cur.fetchall.side_effect = [[{
+            'id': doc_id,
+            'created_at': datetime(2026, 7, 15, 14, 0),
+            'title': 'Sample AI session summary',
+            'filename': 'sample.md',
+            'source': 'chat_summary',
+            'mime_type': 'text/markdown',
+        }]]
+
+        resp = client.get('/api/v1/all-logs?kind=document', headers=auth_headers)
+        assert resp.status_code == 200
+        assert cur.fetchall.call_count == 1
+        body = resp.get_json()
+        assert body['applied']['kind'] == 'document'
+        entry = body['entries'][0]
+        assert entry['type'] == 'document'
+        assert entry['source'] == 'chat_summary'
+        assert entry['description'] == 'AI session summary saved: Sample AI session summary'
+        assert entry['links'] == {
+            'web': f'/?activity=documents&doc={doc_id}',
+            'download': f'/api/v1/documents/{doc_id}/download',
+        }
+        # The feed reads the documents table itself; the SELECT must exclude
+        # soft-deleted rows.
+        doc_selects = [c for c in cur.execute.call_args_list
+                       if 'FROM documents' in str(c.args[0])]
+        assert doc_selects and 'deleted_at IS NULL' in str(doc_selects[0].args[0])
+
     def test_kind_unknown_runs_all_and_reports_not_applied(self, client, mock_db, auth_headers):
         """A kind the route doesn't map runs everything and reports kind as
         not applied rather than lying."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 10
+        cur.fetchall.side_effect = [[]] * 11
 
         resp = client.get('/api/v1/all-logs?kind=telemetry', headers=auth_headers)
         assert resp.status_code == 200
-        assert cur.fetchall.call_count == 10
+        assert cur.fetchall.call_count == 11
         assert resp.get_json()['applied']['kind'] is None
 
     def test_input_id_runs_only_health_input_log(self, client, mock_db, auth_headers):
@@ -969,7 +1009,7 @@ class TestGetAllLogs:
         conn, cur = mock_db
         cur.fetchall.side_effect = [
             [self._hil_row() for _ in range(100)],
-            [], [], [], [], [], [], [], [], [],
+            [], [], [], [], [], [], [], [], [], [],
         ]
 
         resp = client.get(
@@ -983,7 +1023,7 @@ class TestGetAllLogs:
         """start_date == end_date is a full-day window on every source, not
         an empty or rejected one (the Bug-2 shape, pinned here too)."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 10
+        cur.fetchall.side_effect = [[]] * 11
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2026-05-18&end_date=2026-05-18',
@@ -995,13 +1035,13 @@ class TestGetAllLogs:
             if len(c.args) == 2
             and tuple(c.args[1]).count(date(2026, 5, 18)) == 2
         ]
-        assert len(dated_calls) == 10
+        assert len(dated_calls) == 11
 
     def test_empty_window_never_falls_back_to_newest(self, client, mock_db, auth_headers):
         """A window with no data must return empty — never the unfiltered
         newest-100 rows (the original Bug 1 behavior)."""
         conn, cur = mock_db
-        cur.fetchall.side_effect = [[]] * 10
+        cur.fetchall.side_effect = [[]] * 11
 
         resp = client.get(
             '/api/v1/all-logs?start_date=2030-01-01&end_date=2030-01-31',
@@ -1015,9 +1055,9 @@ class TestGetAllLogs:
             and date(2030, 1, 1) in tuple(c.args[1])
             and date(2030, 1, 31) in tuple(c.args[1])
         ]
-        assert len(dated_calls) == 10, (
+        assert len(dated_calls) == 11, (
             'a source SELECT ran without the window bounds — newest-rows fallback')
-        assert cur.fetchall.call_count == 10
+        assert cur.fetchall.call_count == 11
 
 
 # ============================================================================

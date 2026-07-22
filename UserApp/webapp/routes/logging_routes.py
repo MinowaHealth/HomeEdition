@@ -12,6 +12,7 @@ import uuid
 import json
 
 from recurrence import is_recurring_on_date
+from routes.documents import _doc_links
 
 from utils import (
     require_auth,
@@ -596,7 +597,7 @@ def get_all_logs():
     input_id) and `sources_truncated` — sources whose per-source LIMIT
     filled up, meaning the window may hold more rows than were fetched.
 
-    Implementation runs ten per-source SELECTs (LIMIT 100 each, 50 for
+    Implementation runs eleven per-source SELECTs (LIMIT 100 each, 50 for
     sleep/nutrition), merges in Python, and slices the requested page.
     A UNION-as-CTE rewrite is deferred; see UserAPIPagination plan Option A.
     """
@@ -616,10 +617,11 @@ def get_all_logs():
         'food': {'food'},
         'observation': {'observations'},
         'sync': {'sync'},
+        'document': {'documents'},
     }
     ALL_SOURCES = {'health_input_log', 'blood_pressure', 'temperature', 'weight',
                    'blood_glucose', 'sleep_nutrition', 'medication_metrics', 'food',
-                   'observations', 'sync'}
+                   'observations', 'sync', 'documents'}
     # Unknown / unmappable kinds run everything and are reported as not
     # applied — honesty over rejection, the client enum will drift before
     # this route does.
@@ -1053,6 +1055,42 @@ def get_all_logs():
             'detail': log['detail'],
             'error_message': log['error_message'],
             'job_id': str(log['job_id']) if log['job_id'] else None,
+        })
+
+    # Get document arrivals (uploads, faxes, AI chat summaries). The
+    # documents row IS the event — no separate event table, so soft-deleted
+    # docs drop out of the feed for free.
+    doc_logs = []
+    if 'documents' in sources:
+        doc_date_sql, doc_date_params = date_filter(sql.Identifier('created_at'))
+        cur.execute(sql.SQL("""
+            SELECT id, created_at, title, filename, source, mime_type
+            FROM documents
+            WHERE tenant_id = %s AND user_id = %s AND deleted_at IS NULL
+            {date_filter}
+            ORDER BY created_at DESC
+            LIMIT 100
+        """).format(date_filter=doc_date_sql), [tenant_id, user_id] + doc_date_params)
+        doc_logs = cur.fetchall()
+        if len(doc_logs) == 100:
+            sources_truncated.append('documents')
+    _DOC_LABELS = {'chat_summary': 'AI session summary saved',
+                   'fax': 'Fax received',
+                   'upload': 'Document uploaded'}
+    for log in doc_logs:
+        doc_source = log['source'] or 'upload'
+        label = _DOC_LABELS.get(doc_source, 'Document saved')
+        all_logs.append({
+            'id': str(log['id']),
+            'timestamp': log['created_at'].isoformat(),
+            'type': 'document',
+            'description': f"{label}: {log['title'] or log['filename']}",
+            'stack': None,
+            'source': doc_source,
+            'title': log['title'],
+            'filename': log['filename'],
+            'mime_type': log['mime_type'],
+            'links': _doc_links(str(log['id'])),
         })
 
     cur.close()

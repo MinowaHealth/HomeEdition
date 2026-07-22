@@ -3961,7 +3961,10 @@
                                                     log.type === 'temperature' ? '#FF9800' :
                                                         log.type === 'weight' ? '#2196F3' :
                                                             log.type === 'blood_glucose' ? '#9C27B0' :
-                                                                log.type === 'food' ? '#FF5722' : '#999',
+                                                                log.type === 'food' ? '#FF5722' :
+                                                                    log.type === 'observation' ? '#795548' :
+                                                                        log.type === 'sync' ? (log.status === 'failed' ? '#B71C1C' : '#607D8B') :
+                                                                            log.type === 'document' ? '#00838F' : '#999',
                                             color: 'white'
                                         }}>
                                             {log.type === 'health_input' ? 'INPUT' :
@@ -3969,16 +3972,24 @@
                                                     log.type === 'temperature' ? 'TEMP' :
                                                         log.type === 'weight' ? 'WEIGHT' :
                                                             log.type === 'blood_glucose' ? 'GLUCOSE' :
-                                                                log.type === 'food' ? 'FOOD' : log.type}
+                                                                log.type === 'food' ? 'FOOD' :
+                                                                    log.type === 'observation' ? 'OBS' :
+                                                                        log.type === 'sync' ? 'SYNC' :
+                                                                            log.type === 'document' ? 'DOC' : log.type}
                                         </span>
                                     </td>
                                     <td>{log.description}</td>
                                     <td>{log.stack || '-'}</td>
                                     <td>
-                                        {(log.type === 'health_input' || log.type === 'food') && (
+                                        {(log.type === 'health_input' || log.type === 'food' || log.type === 'observation') && (
                                             <button onClick={() => handleEdit(log)}>Edit</button>
                                         )}
-                                        <button onClick={() => handleDelete(log.id, log.type)}>Delete</button>
+                                        {log.type !== 'sync' && log.type !== 'document' && (
+                                            <button onClick={() => handleDelete(log.id, log.type)}>Delete</button>
+                                        )}
+                                        {log.type === 'document' && log.links && (
+                                            <a href={log.links.web} style={{ fontSize: '13px' }}>View</a>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
