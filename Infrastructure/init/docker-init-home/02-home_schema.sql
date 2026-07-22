@@ -6,7 +6,7 @@
 -- scoping convention); per-user privacy is enforced in the application with
 -- explicit user_id predicates on every query.
 --
--- Schema version marker: 11.0.0-home (see schema_version at the end of this
+-- Schema version marker: 11.1.0-home (see schema_version at the end of this
 -- file). Roles, grants, and query-performance indexes live in
 -- role/app-role-setup.sql.
 --
@@ -2407,3 +2407,4 @@ COMMENT ON COLUMN public.api_tokens.token_type IS 'algo: not-a-credential — en
 
 -- Home Edition marker
 INSERT INTO public.schema_version (version, description) VALUES ('11.0.0-home', 'Home Edition single-household schema; tenant_id fixed at 1') ON CONFLICT (version) DO NOTHING;
+INSERT INTO public.schema_version (version, description) VALUES ('11.1.0-home', 'July 2026 HB port: data_sync_log, health_input_acquisitions, documents fts/provenance/chat_summary/episode_report, AI Sessions + Episode Reports system folders, bp_devices on user_preferences') ON CONFLICT (version) DO NOTHING;

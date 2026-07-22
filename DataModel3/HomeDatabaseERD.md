@@ -1,14 +1,14 @@
 # Home Edition Database ERD — healthv10
 
-**Date: 2026-07-03 03:45 PDT**
+**Date: 2026-07-21 16:30 PDT**
 
-Generated from `Infrastructure/init/docker-init-home/02-home_schema.sql` (schema version `11.0.0-home`), 73 tables. That file is the schema source of truth; the companion `HomeDatabaseReport.md` carries the full per-table column detail.
+Generated from `Infrastructure/init/docker-init-home/02-home_schema.sql` (schema version `11.1.0-home`), 75 tables. That file is the schema source of truth; the companion `HomeDatabaseReport.md` carries the full per-table column detail.
 
 Every user-owned table carries `tenant_id` (always `1`) as a fixed app-level scoping convention; per-user privacy is enforced in the application with explicit `user_id` predicates on every query.
 
 ## How to read these diagrams
 
-- One diagram per domain — a single 73-table diagram is unreadable.
+- One diagram per domain — a single 75-table diagram is unreadable.
 - `users` is the hub of the whole schema: 67 tables carry the composite FK `(tenant_id, user_id)` → `users(tenant_id, id)`, `ON DELETE CASCADE` unless a diagram notes otherwise. Each domain diagram repeats a slim `users` stub (full definition in Core & authentication).
 - Solid lines are real FK constraints; dotted lines are references by convention (a UUID/integer column with no constraint, resolved by the application).
 - Entities show PK/FK columns plus a few salient attributes, not the full column list. `vector` attributes are `VECTOR(768)` pgvector embedding columns (see `EmbeddingDesign.md`).
@@ -77,6 +77,7 @@ erDiagram
         uuid id PK
         uuid user_id FK, UK
         text theme
+        text[] bp_devices "BP meter pick list"
         text timezone_reminder_mode
     }
     tenants ||--o{ users : "tenant_id"
@@ -87,7 +88,7 @@ erDiagram
     users ||--o| user_preferences : "1:1"
 ```
 
-`email_verification_tokens` is deliberately unconnected: it exists before the account does. Inserting a `users` row fires the `trg_users_seed_system_folders` trigger, which creates that member's two system folders in the Documents domain.
+`email_verification_tokens` is deliberately unconnected: it exists before the account does. Inserting a `users` row fires the `trg_users_seed_system_folders` trigger, which creates that member's four system folders in the Documents domain.
 
 ## System & telemetry
 
@@ -205,10 +206,21 @@ erDiagram
         uuid suggested_catalog_id "by convention"
         text status
     }
+    health_input_acquisitions {
+        smallint tenant_id PK
+        uuid id PK
+        uuid user_id FK
+        uuid health_input_id FK "nullable, SET NULL"
+        text item_name
+        date acquired_date
+        numeric quantity
+    }
     users ||--o{ timeframes : ""
     users ||--o{ health_inputs : ""
     users ||--o{ stacks : ""
     users ||--o{ health_input_log : ""
+    users ||--o{ health_input_acquisitions : ""
+    health_inputs ||--o{ health_input_acquisitions : "SET NULL"
     timeframes ||--o{ health_inputs : "SET NULL"
     timeframes ||--o{ stacks : "SET NULL"
     stacks ||--o{ stack_inputs : ""
@@ -220,7 +232,7 @@ erDiagram
     health_input_log ||..o{ log_promotions : "source_log_id"
 ```
 
-Cross-domain FKs: `remedies.condition_id` → `health_conditions` (Clinical history, SET NULL). `log_promotions` also soft-references `health_food_logv2` and `health_food_itemsv2` (Dietary & food) via `source_table` + `source_log_id` / `suggested_catalog_id` — no FK constraints, because each column spans two possible target tables. A `health_input_log` row holds either a catalog `input_id` or `free_text` (CHECK-enforced).
+Cross-domain FKs: `remedies.condition_id` → `health_conditions` (Clinical history, SET NULL). `log_promotions` also soft-references `health_food_logv2` and `health_food_itemsv2` (Dietary & food) via `source_table` + `source_log_id` / `suggested_catalog_id` — no FK constraints, because each column spans two possible target tables. A `health_input_log` row holds either a catalog `input_id` or `free_text` (CHECK-enforced). `health_input_acquisitions` is the supply-arrival journal: a catalog-linked arrival bumps `health_inputs.current_quantity`, dose logging decrements it.
 
 ## Scheduling & reminders
 
@@ -535,7 +547,7 @@ erDiagram
         uuid user_id FK
         uuid parent_id FK "self-reference, RESTRICT"
         text name UK "unique per parent (live)"
-        boolean is_system "Documents, Fax"
+        boolean is_system "Documents, Fax, AI Sessions, Episode Reports"
     }
     documents {
         smallint tenant_id PK
@@ -546,6 +558,8 @@ erDiagram
         text ocr_status
         text storage_tier
         vector embedding_content
+        tsvector fts "generated, doc-level FTS"
+        jsonb provenance "AI-written docs"
     }
     document_pages {
         smallint tenant_id PK
@@ -571,7 +585,7 @@ erDiagram
     documents ||--o{ document_annotations : ""
 ```
 
-All four tables also carry the standard user FK (`document_pages` and `document_annotations` reference both their document and the owning user). The `Documents` and `Fax` system folders are created per user by the `trg_users_seed_system_folders` trigger; RESTRICT on `documents.folder_id` and `document_folders.parent_id` keeps non-empty folders from being dropped.
+All four tables also carry the standard user FK (`document_pages` and `document_annotations` reference both their document and the owning user). The `Documents`, `Fax`, `AI Sessions`, and `Episode Reports` system folders are created per user by the `trg_users_seed_system_folders` trigger; RESTRICT on `documents.folder_id` and `document_folders.parent_id` keeps non-empty folders from being dropped.
 
 ## Garmin
 
@@ -643,8 +657,18 @@ erDiagram
         date upload_date
         text status
     }
+    data_sync_log {
+        smallint tenant_id PK
+        uuid id PK
+        uuid user_id FK
+        text source "garmin, healthkit"
+        uuid job_id "by convention"
+        text status "completed or failed"
+        jsonb detail
+    }
     users ||--o| garmin_credentials : "1:1"
     users ||--o{ garmin_sync_jobs : ""
+    users ||--o{ data_sync_log : ""
     users ||--o{ garm_daily_summ : ""
     users ||--o{ garm_hr : ""
     users ||--o{ garm_rr : ""
@@ -654,7 +678,7 @@ erDiagram
     users ||--o{ garm_upload_date : ""
 ```
 
-The `garm_*` time-series tables use natural composite PKs — `(tenant_id, user_id, timestamp)` or `(tenant_id, user_id, calendar_date)` — instead of surrogate UUIDs; `user_id` is simultaneously part of the PK and of the FK to `users`. These are the highest-volume tables in the database.
+The `garm_*` time-series tables use natural composite PKs — `(tenant_id, user_id, timestamp)` or `(tenant_id, user_id, calendar_date)` — instead of surrogate UUIDs; `user_id` is simultaneously part of the PK and of the FK to `users`. These are the highest-volume tables in the database. `data_sync_log` is the cross-ecosystem append-only sync history (Garmin and HealthKit runs), surfaced by `/all-logs` as `type='sync'`.
 
 ## HealthKit
 

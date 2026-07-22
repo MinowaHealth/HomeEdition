@@ -46,8 +46,8 @@ Home Edition replaces multi-tenant RLS with a much simpler model:
 
 ### UserMCP — MCP Server for the Household
 
-- **Python:** `UserMCP/` — HTTP/SSE transport, port 13282
-- **Key files:** `UserMCP/mcp_server.py` (Starlette ASGI + MCP bootstrap), `UserMCP/tools/` (health_data, snapshot, health_config, lab_results, feedback, suggestions)
+- **Python:** `UserMCP/` — streamable HTTP (`/mcp`) + legacy SSE transport, port 13282
+- **Key files:** `UserMCP/mcp_server.py` (Starlette ASGI + MCP bootstrap), `UserMCP/tools/` (22 task-oriented tools: time_context, date_math, profile, regimen, stacks, clinical_history, vitals, labs, wearables, garmin_detail, garmin_sync, sleep_events, observations_detail, activity, adherence, acquisitions, nutrition, search, documents, chat_summary, episode_report, episode_report_list, feedback)
 - **Architecture:** Stateless HTTP proxy → UserApp `/api/v1/*` → PostgreSQL (app-level `user_id` scoping). Per-request bearer token auth. Claude Desktop connects via `npx supergateway`.
 - **Status:** Active.
 

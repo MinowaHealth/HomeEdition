@@ -1,8 +1,8 @@
 # Home Edition Database Report — healthv10
 
-**Date: 2026-07-03 03:45 PDT**
+**Date: 2026-07-21 16:30 PDT**
 
-Generated from `Infrastructure/init/docker-init-home/02-home_schema.sql` (schema version `11.0.0-home`), 73 tables. That file is the schema source of truth; this report is a derived reference and is regenerated, never hand-drifted.
+Generated from `Infrastructure/init/docker-init-home/02-home_schema.sql` (schema version `11.1.0-home`), 75 tables. That file is the schema source of truth; this report is a derived reference and is regenerated, never hand-drifted.
 
 Every user-owned table carries `tenant_id` (always `1`) as a fixed app-level scoping convention; per-user privacy is enforced in the application with explicit `user_id` predicates on every query. Companion diagram file: `HomeDatabaseERD.md`.
 
@@ -12,17 +12,17 @@ Every user-owned table carries `tenant_id` (always `1`) as a fixed app-level sco
 |--------|--------|
 | Core & authentication | 8 |
 | System & telemetry | 4 |
-| Health tracking — medications & supplements | 8 |
+| Health tracking — medications & supplements | 9 |
 | Scheduling & reminders | 4 |
 | Dietary, food & household | 8 |
 | Vitals & metrics | 5 |
 | Clinical history | 6 |
 | Contacts | 1 |
 | Documents & embeddings | 4 |
-| Garmin | 9 |
+| Garmin | 10 |
 | HealthKit | 13 |
 | Mobile sync | 3 |
-| **Total** | **73** |
+| **Total** | **75** |
 
 ## Core & authentication
 
@@ -234,7 +234,7 @@ Registry of physical devices per user: identity (`device_id`, platform, versions
 
 ### `user_preferences`
 
-Per-user UI and behavior preferences: theme, units, notification toggles, reminder toggles, sidebar layout (`sidebar_order`, `sidebar_hidden`), and reminder timezone mode. 1:1 with `users`.
+Per-user UI and behavior preferences: theme, units, notification toggles, reminder toggles, sidebar layout (`sidebar_order`, `sidebar_hidden`), the BP meter pick list (`bp_devices`), and reminder timezone mode. 1:1 with `users`.
 
 | Column | Type | Nullable | Default |
 |--------|------|----------|---------|
@@ -260,6 +260,7 @@ Per-user UI and behavior preferences: theme, units, notification toggles, remind
 | `privacy_data_retention` | TEXT |  | `'forever'` |
 | `sidebar_order` | TEXT[] |  | `NULL` |
 | `sidebar_hidden` | TEXT[] |  | `NULL` |
+| `bp_devices` | TEXT[] |  | `NULL` |
 | `timezone_reminder_mode` | TEXT |  | `'local'` |
 | `created_at` | TIMESTAMPTZ |  | `now()` |
 | `updated_at` | TIMESTAMPTZ |  | `now()` |
@@ -607,6 +608,36 @@ Match suggestions linking freeform log rows (from `health_input_log` or `health_
 - **Index:** `idx_promotions_pending` — `(tenant_id, user_id, status) WHERE status = 'pending'`
 - **Index:** `idx_promotions_source` — `(tenant_id, source_table, source_log_id)`
 - **Index:** `idx_promotions_sqlite` — `(sqlite_id) WHERE sqlite_id IS NOT NULL`
+
+### `health_input_acquisitions`
+
+Supply-arrival journal for meds and supplements ("bought 90 metformin on the 12th"): item name (free text or a `health_input_id` catalog link), acquired date, quantity/unit/cost/brand/vendor, expiration, notes. A catalog-linked arrival with a quantity bumps `health_inputs.current_quantity`; dose logging decrements it (`GREATEST(n-1, 0)`). Journal edits/deletes never re-adjust inventory.
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `tenant_id` | SMALLINT | NOT NULL | `1` |
+| `id` | UUID | NOT NULL | `gen_random_uuid()` |
+| `sqlite_id` | BIGINT |  |  |
+| `user_id` | UUID | NOT NULL |  |
+| `health_input_id` | UUID |  |  |
+| `item_name` | TEXT | NOT NULL |  |
+| `acquired_date` | DATE | NOT NULL |  |
+| `quantity` | NUMERIC(10,2) |  |  |
+| `unit` | TEXT |  |  |
+| `cost` | NUMERIC(10,2) |  |  |
+| `brand` | TEXT |  |  |
+| `vendor` | TEXT |  |  |
+| `expiration_date` | DATE |  |  |
+| `notes` | TEXT |  |  |
+| `created_at` | TIMESTAMPTZ | NOT NULL | `now()` |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | `now()` |
+| `synced_at` | TIMESTAMPTZ |  |  |
+
+- **Primary key:** `(tenant_id, id)`
+- **FK:** `(tenant_id, user_id)` → `users(tenant_id, id)` ON DELETE CASCADE
+- **FK:** `(tenant_id, health_input_id)` → `health_inputs(tenant_id, id)` ON DELETE SET NULL
+- **Index:** `idx_hia_user_date` — `USING btree (tenant_id, user_id, acquired_date DESC)`
+- **Index:** `idx_hia_user_input` — `USING btree (tenant_id, user_id, health_input_id)`
 
 ## Scheduling & reminders
 
@@ -1350,7 +1381,7 @@ Folder tree for documents (`parent_id` self-reference, RESTRICT so a non-empty f
 
 ### `documents`
 
-User-owned files with in-process OCR pipeline state (`ocr_status`, `quality_label`, `page_count`, `ocr_text_full`), an `embedding_content` vector over the OCR text, a SHA-256 content hash, title/category/tags, and storage-tier bookkeeping (`storage_tier`, remote bucket/key, `local_expires_at`). `deleted_at` is a soft-delete tombstone. The `source` CHECK enumerates ingestion seams beyond plain upload.
+User-owned files with in-process OCR pipeline state (`ocr_status`, `quality_label`, `page_count`, `ocr_text_full`), an `embedding_content` vector over the OCR text, a SHA-256 content hash, title/category/tags, and storage-tier bookkeeping (`storage_tier`, remote bucket/key, `local_expires_at`). `deleted_at` is a soft-delete tombstone. The `source` CHECK enumerates ingestion seams beyond plain upload, including the AI-written sources `chat_summary` and `episode_report`; `provenance` carries their model/session metadata and `fts` is a generated doc-level tsvector for keyword search.
 
 | Column | Type | Nullable | Default |
 |--------|------|----------|---------|
@@ -1372,6 +1403,8 @@ User-owned files with in-process OCR pipeline state (`ocr_status`, `quality_labe
 | `tags` | JSONB |  | `'[]'` |
 | `embedding_content` | VECTOR(768) |  |  |
 | `ocr_text_full` | TEXT |  |  |
+| `fts` | TSVECTOR | generated | `to_tsvector(left(title ‖ ' ' ‖ ocr_text_full, 500000))` STORED |
+| `provenance` | JSONB |  |  |
 | `storage_tier` | TEXT | NOT NULL | `'local'` |
 | `remote_bucket` | TEXT |  |  |
 | `remote_key` | TEXT |  |  |
@@ -1382,7 +1415,7 @@ User-owned files with in-process OCR pipeline state (`ocr_status`, `quality_labe
 | `updated_at` | TIMESTAMPTZ |  | `now()` |
 
 - **Primary key:** `(tenant_id, id)`
-- **Check:** `documents_source_check`: `source IN ('upload', 'fax_inbound', 'email', 'provider_send')`
+- **Check:** `documents_source_check`: `source IN ('upload', 'fax_inbound', 'email', 'provider_send', 'chat_summary', 'episode_report')`
 - **Check:** `documents_ocr_status_check`: `ocr_status IN ('pending', 'processing', 'complete', 'failed', 'not_needed')`
 - **Check:** `documents_quality_label_check`: `quality_label IN ('green', 'yellow', 'red', 'unknown')`
 - **Check:** `documents_storage_tier_check`: `storage_tier IN ('local', 'remote', 'both')`
@@ -1394,6 +1427,7 @@ User-owned files with in-process OCR pipeline state (`ocr_status`, `quality_labe
 - **Index:** `idx_documents_tenant_user_active` — `USING btree (tenant_id, user_id, created_at DESC) WHERE deleted_at IS NULL`
 - **Index:** `idx_documents_cleanup_eligible` — `(local_expires_at) WHERE storage_tier = 'both' AND local_expires_at IS NOT NULL`
 - **Index:** `idx_documents_embedding_content` — `USING ivfflat (embedding_content vector_cosine_ops) WITH (lists = 100)`
+- **Index:** `idx_documents_fts` — `USING gin (fts) WHERE deleted_at IS NULL`
 
 ### `document_pages`
 
@@ -1652,6 +1686,28 @@ Background Garmin sync jobs: job type, date range, JSONB progress, error message
 - **Check:** `garmin_sync_status_check`: `(status IN ('pending', 'running', 'completed', 'failed', 'cancelled'))`
 - **FK:** `(tenant_id, user_id)` → `users(tenant_id, id)` ON DELETE CASCADE
 - **Index:** `idx_garmin_sync_tenant_user_status` — `USING btree (tenant_id, user_id, status)`
+
+### `data_sync_log`
+
+Append-only sync history: one row per terminal Garmin/HealthKit sync or import run, surfaced by `/all-logs` as `type='sync'`. MCP-triggered syncs (`source=mcp` on POST /garmin/sync) deliberately skip this table.
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `tenant_id` | SMALLINT | NOT NULL | `1` |
+| `id` | UUID | NOT NULL | `gen_random_uuid()` |
+| `user_id` | UUID | NOT NULL |  |
+| `source` | TEXT | NOT NULL |  |
+| `job_id` | UUID |  |  |
+| `status` | TEXT | NOT NULL |  |
+| `detail` | JSONB |  |  |
+| `error_message` | TEXT |  |  |
+| `synced_at` | TIMESTAMPTZ | NOT NULL |  |
+| `created_at` | TIMESTAMPTZ |  | `now()` |
+
+- **Primary key:** `(tenant_id, id)`
+- **Check:** `data_sync_log_status_check`: `status IN ('completed', 'failed')`
+- **FK:** `(tenant_id, user_id)` → `users(tenant_id, id)` ON DELETE CASCADE
+- **Index:** `idx_data_sync_log_user_time` — `USING btree (tenant_id, user_id, synced_at DESC)`
 
 ## HealthKit
 

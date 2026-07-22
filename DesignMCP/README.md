@@ -8,7 +8,7 @@ the product designer and the medical advisor use Claude Design to mock up Minowa
 
 ## Audience and design point
 
-This is *deliberately different* from [UserMCP](../UserMCP/), which exposes six curated clinical-reasoning tools. DesignMCP exposes the **raw API contract** so Design can ask questions like "what fields does a meal-log row have" or "what shape does /api/v1/health-inputs return" without us pre-curating answers.
+This is *deliberately different* from [UserMCP](../UserMCP/), which exposes a curated task-oriented tool surface (22 tools as of July 2026). DesignMCP exposes the **raw API contract** so Design can ask questions like "what fields does a meal-log row have" or "what shape does /api/v1/health-inputs return" without us pre-curating answers.
 
 Two tools cover the entire surface:
 
