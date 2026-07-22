@@ -147,3 +147,4 @@
 # batch lands (avoids folding unrelated work into this commit)
 /api/v1/garmin/minute-detail
 /api/v1/garmin/sleep-events
+/api/v1/observations/detail

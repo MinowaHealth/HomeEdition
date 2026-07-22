@@ -384,6 +384,91 @@ async def test_sleep_events_recent_target_truncated():
 
 
 # ---------------------------------------------------------------------------
+# observations_detail (get_observations_detail)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_observations_detail_passes_at_and_wraps():
+    from tools.observations_detail import handle
+
+    captured = {}
+
+    def route(kwargs):
+        captured["params"] = kwargs.get("params")
+        return {
+            "target": "2026-07-12T17:30:00+00:00",
+            "window": {"from": "2026-07-12T16:30:00+00:00",
+                       "to": "2026-07-12T18:30:00+00:00", "minutes": 121},
+            "observations": [
+                {"id": "o1", "timestamp": "2026-07-12T17:15:00+00:00",
+                 "observation": "itchy throat", "source_type": "symptom",
+                 "severity": 3, "mental_health_flag": False,
+                 "tags": ["allergy"], "seconds_from_target": -900},
+            ],
+            "counts": {"observations": 1, "by_category": {"symptom": 1}},
+            "truncated_future": False,
+        }
+
+    client = _make_client({"/observations/detail": route})
+    env = await handle({"at": "2026-07-12T17:30:00Z"}, client)
+
+    _assert_envelope(env)
+    assert captured["params"] == {"at": "2026-07-12T17:30:00Z"}
+    assert env["data"]["observations"][0]["seconds_from_target"] == -900
+    assert env["coverage"]["counts"]["by_category"] == {"symptom": 1}
+    assert env["coverage"]["gaps"] == []
+
+
+@pytest.mark.asyncio
+async def test_observations_detail_requires_at():
+    from tools.observations_detail import handle
+
+    client = _make_client({})  # route must never be called
+    env = await handle({}, client)
+
+    assert env["data"]["observations"] == []
+    assert any("required" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+@pytest.mark.asyncio
+async def test_observations_detail_empty_window_gaps():
+    from tools.observations_detail import handle
+
+    client = _make_client({"/observations/detail": {
+        "target": "2026-07-12T14:00:00+00:00",
+        "window": {"from": "...", "to": "...", "minutes": 121},
+        "observations": [],
+        "counts": {"observations": 0, "by_category": {}},
+        "truncated_future": False,
+    }})
+    env = await handle({"at": "2026-07-12T14:00:00Z"}, client)
+
+    reasons = " ".join(g["reason"] for g in env["coverage"]["gaps"])
+    assert "no observations" in reasons
+    assert env["coverage"]["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_observations_detail_recent_target_truncated():
+    from tools.observations_detail import handle
+
+    client = _make_client({"/observations/detail": {
+        "target": "2026-07-13T05:00:00+00:00",
+        "window": {"from": "...", "to": "...", "minutes": 121},
+        "observations": [{"id": "o1", "timestamp": "2026-07-13T04:45:00+00:00",
+                          "observation": "woke up", "source_type": "text",
+                          "severity": None, "mental_health_flag": False,
+                          "tags": [], "seconds_from_target": -900}],
+        "counts": {"observations": 1, "by_category": {"text": 1}},
+        "truncated_future": True,
+    }})
+    env = await handle({"at": "2026-07-13T05:00:00Z"}, client)
+
+    assert env["coverage"]["truncated"] is True
+    assert any("into the future" in g["reason"] for g in env["coverage"]["gaps"])
+
+
+# ---------------------------------------------------------------------------
 # wearables
 # ---------------------------------------------------------------------------
 

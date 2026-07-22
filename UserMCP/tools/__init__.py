@@ -33,6 +33,7 @@ _TOOL_MODULES: Tuple[str, ...] = (
     "tools.wearables",
     "tools.garmin_detail",
     "tools.sleep_events",
+    "tools.observations_detail",
     # Activity & adherence
     "tools.activity",
     "tools.adherence",

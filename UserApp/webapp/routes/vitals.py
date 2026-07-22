@@ -5,7 +5,7 @@ Blueprint for blood pressure, temperature, weight, blood glucose, observations, 
 """
 from flask import Blueprint, request, jsonify, g, current_app
 from db_driver import sql
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import pytz
 import uuid
 import threading
@@ -602,6 +602,99 @@ def get_observations():
         obs['mental_health_flag'] = obs.get('mental_health_flag', False) or False
 
     return jsonify(paginated_response(observations, total, limit, offset, key='entries'))
+
+
+OBSERVATION_DETAIL_WINDOW_MINUTES = 60
+
+
+@bp.route('/observations/detail', methods=['GET'])
+@require_auth
+def observations_detail():
+    """All observations in the hour before and after a point in time.
+
+    Query param:
+        at (required) — ISO 8601 instant. Offset-aware strings are honored;
+            naive strings are read in the user's home timezone (app convention).
+
+    Returns every observation whose observed_at falls in
+    [at − 60min, at + 60min], ordered by time, each carrying its signed offset
+    from the target so the caller can see what was recorded just before and
+    just after the event. Parallels the Garmin minute-detail / sleep-events
+    tools: same ±60-minute window and `truncated_future` semantics. When `at`
+    is recent the forward half of the window may not exist yet.
+
+    Minimum-Necessary (§164.502(b)): the ±60-minute bound is the minimization;
+    the read is keyed by the RLS session identity (no user_id in the WHERE).
+    """
+    at_str = request.args.get('at')
+    if not at_str:
+        return jsonify({'error': 'at (ISO 8601 timestamp) is required'}), 400
+    try:
+        at_utc = local_to_utc(at_str)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid at timestamp; use ISO 8601'}), 400
+
+    window = timedelta(minutes=OBSERVATION_DETAIL_WINDOW_MINUTES)
+    start = at_utc - window
+    end = at_utc + window
+    now = datetime.now(timezone.utc)
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # RLS-filtered; bound by observed_at only (tenant/user enforced by RLS).
+        cur.execute("""
+            SELECT id, observed_at, content, category, severity,
+                   mental_health_flag, tags
+            FROM health_observations
+            WHERE observed_at >= %s AND observed_at <= %s
+            ORDER BY observed_at
+        """, (start, end))
+        rows = cur.fetchall()
+    except Exception as e:
+        if db_manager.is_query_killed(e):
+            db_manager.log_and_count_query_kill('/observations/detail', str(g.user.get('user_id', 'anon')))
+            return jsonify({'error': 'Query took too long and was cancelled', 'code': 'QUERY_TIMEOUT'}), 503
+        current_app.logger.error("observations/detail FAILED: %s", e)
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+    observations = []
+    by_category: dict = {}
+    for r in rows:
+        ts = r['observed_at']
+        if ts.tzinfo is None:
+            ts = pytz.UTC.localize(ts)
+        category = r['category'] or 'text'
+        observations.append({
+            'id': str(r['id']),
+            'timestamp': ts.isoformat(),
+            'observation': r['content'],
+            'source_type': category,
+            'severity': r['severity'],
+            'mental_health_flag': bool(r['mental_health_flag']),
+            'tags': r['tags'] or [],
+            'seconds_from_target': int((ts - at_utc).total_seconds()),
+        })
+        by_category[category] = by_category.get(category, 0) + 1
+
+    return jsonify({
+        'target': at_utc.isoformat(),
+        'window': {
+            'from': start.isoformat(),
+            'to': end.isoformat(),
+            'minutes': OBSERVATION_DETAIL_WINDOW_MINUTES * 2 + 1,
+        },
+        'observations': observations,
+        'counts': {
+            'observations': len(observations),
+            'by_category': by_category,
+        },
+        # Recent target: the forward half of the window is in the future.
+        'truncated_future': end > now,
+    })
 
 
 @bp.route('/observations', methods=['POST'])
