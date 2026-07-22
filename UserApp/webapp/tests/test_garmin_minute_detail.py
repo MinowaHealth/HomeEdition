@@ -37,7 +37,9 @@ class TestGarminMinuteDetail:
         )
         assert resp.status_code == 200
         at = _dt(2026, 7, 13, 18, 0)
-        expected = (at - timedelta(minutes=60), at + timedelta(minutes=60))
+        from conftest import TEST_USER_ID
+        expected = (1, TEST_USER_ID,
+                    at - timedelta(minutes=60), at + timedelta(minutes=60))
         bound = [c for c in cur.execute.call_args_list if len(c.args) == 2]
         assert len(bound) == 3  # hr, rr, stress
         for c in bound:

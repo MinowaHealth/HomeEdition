@@ -534,9 +534,9 @@ def garmin_minute_detail():
     forward half of the window may not exist yet — the response returns only
     elapsed minutes and sets `truncated_future`.
 
-    Minimum-Necessary (§164.502(b)): the ±60-minute bound is the minimization —
-    only the window around the caller-specified event is returned, keyed by the
-    RLS session identity (no user_id in the WHERE; tenant/user enforced by RLS).
+    The ±60-minute bound keeps the response minimal — only the window around
+    the caller-specified event is returned, scoped to the authenticated user
+    (explicit tenant_id/user_id predicates; no RLS on this box).
     """
     at_str = request.args.get('at')
     if not at_str:
@@ -554,25 +554,30 @@ def garmin_minute_detail():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # Each series is RLS-filtered; bound by timestamp only. Stress uses
+        # Each series is scoped to the authenticated user. Stress uses
         # negative sentinels for "no reading" (see analytics heatmap) — drop them.
+        tenant_id = g.user.get('tenant_id', 1)
+        user_id = g.user['user_id']
         cur.execute("""
             SELECT timestamp, heart_rate FROM garm_hr
-            WHERE timestamp >= %s AND timestamp <= %s AND heart_rate IS NOT NULL
+            WHERE tenant_id = %s AND user_id = %s
+              AND timestamp >= %s AND timestamp <= %s AND heart_rate IS NOT NULL
             ORDER BY timestamp
-        """, (start, end))
+        """, (tenant_id, user_id, start, end))
         hr_rows = cur.fetchall()
         cur.execute("""
             SELECT timestamp, respiratory_rate FROM garm_rr
-            WHERE timestamp >= %s AND timestamp <= %s AND respiratory_rate IS NOT NULL
+            WHERE tenant_id = %s AND user_id = %s
+              AND timestamp >= %s AND timestamp <= %s AND respiratory_rate IS NOT NULL
             ORDER BY timestamp
-        """, (start, end))
+        """, (tenant_id, user_id, start, end))
         rr_rows = cur.fetchall()
         cur.execute("""
             SELECT timestamp, garm_stress FROM garm_stress
-            WHERE timestamp >= %s AND timestamp <= %s AND garm_stress >= 0
+            WHERE tenant_id = %s AND user_id = %s
+              AND timestamp >= %s AND timestamp <= %s AND garm_stress >= 0
             ORDER BY timestamp
-        """, (start, end))
+        """, (tenant_id, user_id, start, end))
         stress_rows = cur.fetchall()
     except Exception as e:
         if db_manager.is_query_killed(e):
@@ -652,8 +657,9 @@ def garmin_sleep_events_detail():
     the window so the rollup doesn't overcount an edge event. A recent target
     returns only elapsed events and sets `truncated_future`.
 
-    Minimum-Necessary (§164.502(b)): the ±60-minute bound is the minimization;
-    the read is keyed by the RLS session identity (no user_id in the WHERE).
+    The ±60-minute bound keeps the response minimal; the read is scoped to
+    the authenticated user (explicit tenant_id/user_id predicates; no RLS
+    on this box).
     """
     at_str = request.args.get('at')
     if not at_str:
@@ -675,9 +681,10 @@ def garmin_sleep_events_detail():
         # the window (start before window end AND end after window start).
         cur.execute("""
             SELECT start_time, end_time, sleep_type FROM garm_sleep_events
-            WHERE start_time < %s AND end_time > %s
+            WHERE tenant_id = %s AND user_id = %s
+              AND start_time < %s AND end_time > %s
             ORDER BY start_time
-        """, (end, start))
+        """, (g.user.get('tenant_id', 1), g.user['user_id'], end, start))
         rows = cur.fetchall()
     except Exception as e:
         if db_manager.is_query_killed(e):

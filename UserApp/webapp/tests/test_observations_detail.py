@@ -50,7 +50,8 @@ class TestObservationsDetail:
         at = _dt(2026, 7, 12, 17, 30)
         win_start, win_end = at - timedelta(minutes=60), at + timedelta(minutes=60)
         call = [c for c in cur.execute.call_args_list if len(c.args) == 2][-1]
-        assert tuple(call.args[1]) == (win_start, win_end)
+        from conftest import TEST_USER_ID
+        assert tuple(call.args[1]) == (1, TEST_USER_ID, win_start, win_end)
         assert resp.get_json()['window']['minutes'] == 121
 
     def test_signed_offset_and_fields(self, client, mock_db, auth_headers):

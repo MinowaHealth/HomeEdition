@@ -121,7 +121,7 @@ class TestEnrichHits:
              {'document_id': 'd1', 'page_number': 5}],
         ])
 
-        _enrich_hits(cur, results, 'match', keyword_fts=True)
+        _enrich_hits(cur, results, 'match', keyword_fts=True, tenant_id=1, user_id='u1')
 
         hit = results[0]
         assert hit['title'] == 'Labs'
@@ -144,7 +144,7 @@ class TestEnrichHits:
               'lead_text': 'first 300 chars'}],
         ])
 
-        _enrich_hits(cur, results, 'q', keyword_fts=False)
+        _enrich_hits(cur, results, 'q', keyword_fts=False, tenant_id=1, user_id='u1')
 
         assert results[0]['snippet'] == 'first 300 chars'
         assert results[0]['matched_pages'] == []
@@ -160,7 +160,7 @@ class TestEnrichHits:
             [{'document_id': 'd1', 'page_number': n} for n in range(1, 8)],
         ])
 
-        _enrich_hits(cur, results, 'q', keyword_fts=True)
+        _enrich_hits(cur, results, 'q', keyword_fts=True, tenant_id=1, user_id='u1')
 
         assert results[0]['matched_pages'] == [1, 2, 3, 4, 5]
 
@@ -172,7 +172,7 @@ class TestEnrichHits:
             [{'id': 'a1', 'document_id': 'd9'}],
         ])
 
-        _enrich_hits(cur, results, 'q', keyword_fts=False)
+        _enrich_hits(cur, results, 'q', keyword_fts=False, tenant_id=1, user_id='u1')
 
         hit = results[0]
         assert hit['document_id'] == 'd9'

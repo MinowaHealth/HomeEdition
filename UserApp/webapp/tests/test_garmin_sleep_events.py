@@ -38,8 +38,10 @@ class TestGarminSleepEvents:
         at = _dt(2026, 7, 12, 17, 30)
         win_start, win_end = at - timedelta(minutes=60), at + timedelta(minutes=60)
         call = [c for c in cur.execute.call_args_list if len(c.args) == 2][-1]
-        # params are (window_end, window_start) to match the < / > predicates
-        assert tuple(call.args[1]) == (win_end, win_start)
+        # params are (tenant, user, window_end, window_start) to match the
+        # scoping predicates then the < / > overlap predicates
+        from conftest import TEST_USER_ID
+        assert tuple(call.args[1]) == (1, TEST_USER_ID, win_end, win_start)
         assert resp.get_json()['window']['minutes'] == 121
 
     def test_events_unclipped_rollup_clipped_and_stage_at_target(self, client, mock_db, auth_headers):

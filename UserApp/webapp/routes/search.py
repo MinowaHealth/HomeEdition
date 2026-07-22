@@ -65,11 +65,13 @@ def _doc_links(doc_id: str) -> dict:
     }
 
 
-def _enrich_hits(cur, results: list, q: str, keyword_fts: bool) -> None:
+def _enrich_hits(cur, results: list, q: str, keyword_fts: bool,
+                 tenant_id: int, user_id: str) -> None:
     """Attach document metadata + view links to document/annotation hits.
 
-    One batched query per table. Mutates `results` in place. RLS scopes
-    every read, so enrichment can never leak another user's metadata.
+    One batched query per table. Mutates `results` in place. Every read
+    carries explicit tenant_id/user_id predicates (no RLS on this box), so
+    enrichment can never leak another household member's metadata.
     """
     doc_ids = [r['id'] for r in results if r['table'] == 'documents']
     ann_ids = [r['id'] for r in results if r['table'] == 'document_annotations']
@@ -78,8 +80,9 @@ def _enrich_hits(cur, results: list, q: str, keyword_fts: bool) -> None:
         cur.execute("""
             SELECT id, title, filename, mime_type, source,
                    left(coalesce(ocr_text_full, ''), 300) AS lead_text
-            FROM documents WHERE id = ANY(%s::uuid[])
-        """, (doc_ids,))
+            FROM documents
+            WHERE tenant_id = %s AND user_id = %s AND id = ANY(%s::uuid[])
+        """, (tenant_id, user_id, doc_ids))
         meta = {str(r['id']): r for r in cur.fetchall()}
 
         matched_pages: dict = {}
@@ -88,11 +91,12 @@ def _enrich_hits(cur, results: list, q: str, keyword_fts: bool) -> None:
             # pages only — no page-level index needed.
             cur.execute("""
                 SELECT document_id, page_number FROM document_pages
-                WHERE document_id = ANY(%s::uuid[])
+                WHERE tenant_id = %s AND user_id = %s
+                  AND document_id = ANY(%s::uuid[])
                   AND to_tsvector('english', coalesce(ocr_text, ''))
                       @@ websearch_to_tsquery('english', %s)
                 ORDER BY document_id, page_number
-            """, (doc_ids, q))
+            """, (tenant_id, user_id, doc_ids, q))
             for r in cur.fetchall():
                 pages = matched_pages.setdefault(str(r['document_id']), [])
                 if len(pages) < 5:
@@ -115,8 +119,8 @@ def _enrich_hits(cur, results: list, q: str, keyword_fts: bool) -> None:
     if ann_ids:
         cur.execute("""
             SELECT id, document_id FROM document_annotations
-            WHERE id = ANY(%s::uuid[])
-        """, (ann_ids,))
+            WHERE tenant_id = %s AND user_id = %s AND id = ANY(%s::uuid[])
+        """, (tenant_id, user_id, ann_ids))
         ann_docs = {str(r['id']): str(r['document_id']) for r in cur.fetchall()}
         for hit in results:
             if hit['table'] != 'document_annotations':
@@ -402,7 +406,8 @@ def search_user_data():
         results = (semantic_hits + keyword_hits)[:k]
 
         # Attach document metadata + view links to document/annotation hits.
-        _enrich_hits(cur, results, q, keyword_fts=(mode == 'keyword'))
+        _enrich_hits(cur, results, q, keyword_fts=(mode == 'keyword'),
+                     tenant_id=g.user.get('tenant_id', 1), user_id=g.user['user_id'])
 
         return jsonify({
             'query': q,

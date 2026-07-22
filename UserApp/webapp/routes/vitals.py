@@ -623,8 +623,9 @@ def observations_detail():
     tools: same ±60-minute window and `truncated_future` semantics. When `at`
     is recent the forward half of the window may not exist yet.
 
-    Minimum-Necessary (§164.502(b)): the ±60-minute bound is the minimization;
-    the read is keyed by the RLS session identity (no user_id in the WHERE).
+    The ±60-minute bound keeps the response minimal; the read is scoped to
+    the authenticated user (explicit tenant_id/user_id predicates; no RLS
+    on this box).
     """
     at_str = request.args.get('at')
     if not at_str:
@@ -642,14 +643,14 @@ def observations_detail():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # RLS-filtered; bound by observed_at only (tenant/user enforced by RLS).
         cur.execute("""
             SELECT id, observed_at, content, category, severity,
                    mental_health_flag, tags
             FROM health_observations
-            WHERE observed_at >= %s AND observed_at <= %s
+            WHERE tenant_id = %s AND user_id = %s
+              AND observed_at >= %s AND observed_at <= %s
             ORDER BY observed_at
-        """, (start, end))
+        """, (g.user.get('tenant_id', 1), g.user['user_id'], start, end))
         rows = cur.fetchall()
     except Exception as e:
         if db_manager.is_query_killed(e):
