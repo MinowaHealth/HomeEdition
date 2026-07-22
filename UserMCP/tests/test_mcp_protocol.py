@@ -103,7 +103,7 @@ async def _stub_call_api(self, endpoint: str, method: str = "GET", **kwargs):
         return _DICT_ENDPOINTS[base]
     if base in _LIST_ENDPOINTS:
         return []
-    if base in ("/health-inputs", "/stacks", "/health-input-log", "/all-logs"):
+    if base in ("/health-inputs", "/health-input-log", "/all-logs"):
         return _EMPTY_ENVELOPE
     if base.startswith("/documents/"):
         if base.endswith("/annotations"):

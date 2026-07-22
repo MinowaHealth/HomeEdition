@@ -1,11 +1,15 @@
 """
-get_my_active_regimen — active meds, supplements, stacks, timeframes, reminders.
+get_my_active_regimen — active meds, supplements, timeframes, reminders.
 
 Replaces the old `get_health_config` which dumped raw table contents. This
 tool presents the *active* prescription regimen as the user experiences it:
-scheduled meds first, then stacks they combine into, then the clocks those
-stacks follow, then upcoming reminders. Inactive entries are filtered out —
-callers asking "what am I taking?" shouldn't see archived rows.
+scheduled meds first, then the timeframes they follow, then upcoming
+reminders. Inactive entries are filtered out — callers asking "what am I
+taking?" shouldn't see archived rows.
+
+Stacks are deliberately absent: they are a logging convenience, not an
+analytical object. Per the stack-invisibility rule (CLAUDE.md), no MCP tool
+touches stacks unless "stack" is in its name.
 """
 from __future__ import annotations
 
@@ -25,7 +29,7 @@ def schema() -> Tool:
     return Tool(
         name="get_my_active_regimen",
         description=(
-            "Return the user's current active medications, supplements, stacks, "
+            "Return the user's current active medications and supplements, "
             "and the timeframes/reminders governing when they take them. "
             "Inactive entries are excluded. Use this to answer 'what am I taking' "
             "or 'what's my schedule' questions."
@@ -54,9 +58,8 @@ def _extract_list(resp: Any, *keys: str) -> list:
 
 
 async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
-    inputs_r, stacks_r, timeframes_r, reminders_r, sources = await asyncio.gather(
+    inputs_r, timeframes_r, reminders_r, sources = await asyncio.gather(
         _safe_call(client, "/health-inputs", method="GET", params={"is_active": "true"}),
-        _safe_call(client, "/stacks", method="GET"),
         _safe_call(client, "/timeframes", method="GET"),
         _safe_call(client, "/reminders", method="GET"),
         fetch_sources(client),
@@ -65,7 +68,6 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
     gaps = []
     for label, r in (
         ("health_inputs", inputs_r),
-        ("stacks", stacks_r),
         ("timeframes", timeframes_r),
         ("reminders", reminders_r),
     ):
@@ -76,9 +78,6 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
     # Defensive filter — server should already return is_active only
     inputs = [i for i in inputs if i.get("is_active") is not False]
 
-    stacks = _extract_list(stacks_r, "stacks", "entries", "results")
-    stacks = [s for s in stacks if s.get("is_active") is not False]
-
     timeframes = _extract_list(timeframes_r, "timeframes", "entries", "results")
     timeframes = [t for t in timeframes if t.get("is_active") is not False]
 
@@ -86,15 +85,13 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
 
     data = {
         "inputs": inputs,
-        "stacks": stacks,
         "timeframes": timeframes,
         "reminders": reminders,
     }
     coverage = {
         "counts": {
-            "rows": len(inputs) + len(stacks) + len(timeframes) + len(reminders),
+            "rows": len(inputs) + len(timeframes) + len(reminders),
             "inputs": len(inputs),
-            "stacks": len(stacks),
             "timeframes": len(timeframes),
             "reminders": len(reminders),
             "sources_represented": ["manual"],

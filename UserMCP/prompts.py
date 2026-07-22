@@ -31,8 +31,8 @@ synthesize the output — do not paste raw tool responses.
 
 1. `get_my_profile` — confirm identity, timezone, and active profile
    details.
-2. `get_my_active_regimen` — list currently active medications,
-   supplements, and stacks. Note doses per day and scheduling.
+2. `get_my_active_regimen` — list currently active medications and
+   supplements. Note doses per day and scheduling.
 3. `get_vitals_timeline` with `days=30` — surface recent blood pressure,
    weight, temperature trends. Flag any single reading or pattern that
    appears clinically noteworthy (sustained BP ≥140/90, weight change

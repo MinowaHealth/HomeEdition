@@ -95,7 +95,6 @@ async def test_regimen_filters_to_active_inputs():
             {"id": "i1", "name": "Lisinopril", "is_active": True},
             {"id": "i2", "name": "OldMed", "is_active": False},
         ]},
-        "/stacks": {"stacks": [{"id": "s1", "name": "morning"}]},
         "/timeframes": {"timeframes": []},
         "/reminders": {"reminders": []},
     })
@@ -106,6 +105,9 @@ async def test_regimen_filters_to_active_inputs():
     names = [i["name"] for i in env["data"]["inputs"]]
     assert "Lisinopril" in names
     assert "OldMed" not in names
+    # Stack-invisibility rule: no stack surface anywhere in the envelope
+    assert "stacks" not in env["data"]
+    assert "stacks" not in env["coverage"]["counts"]
 
 
 @pytest.mark.asyncio
@@ -114,7 +116,6 @@ async def test_regimen_suggests_onboarding_when_empty():
 
     client = _make_client({
         "/health-inputs": {"inputs": []},
-        "/stacks": {"stacks": []},
         "/timeframes": {"timeframes": []},
         "/reminders": {"reminders": []},
     })
@@ -554,6 +555,28 @@ async def test_activity_no_gaps_when_applied_matches():
 
 
 @pytest.mark.asyncio
+async def test_activity_strips_stack_field_from_events():
+    """Stack-invisibility rule: the `stack` label /all-logs attaches
+    ('PRN' when NULL) must never reach MCP consumers."""
+    from tools.activity import handle
+
+    client = _make_client({
+        "/all-logs": {
+            "entries": [
+                {"id": 1, "logged_at": "2026-05-10", "stack": "Morning Stack"},
+                {"id": 2, "logged_at": "2026-05-11", "stack": "PRN"},
+            ],
+            "applied": None,
+        },
+    })
+
+    env = await handle({"days": 14}, client)
+
+    assert len(env["data"]) == 2
+    assert all("stack" not in e for e in env["data"])
+
+
+@pytest.mark.asyncio
 async def test_activity_gap_when_kind_not_applied():
     from tools.activity import handle
 
@@ -784,7 +807,6 @@ async def test_context_window_budget_for_each_tool():
                  "doses_per_day": 2}
                 for i in range(20)
             ]},
-            "/stacks": {"stacks": []},
             "/timeframes": {"timeframes": []},
             "/reminders": {"reminders": []},
         }),

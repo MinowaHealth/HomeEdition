@@ -111,6 +111,14 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
         events = []
         pagination = None
 
+    # Stack-invisibility rule (CLAUDE.md): /all-logs stamps a `stack` label on
+    # med events ('PRN' when NULL, which mislabels individually-logged scheduled
+    # meds). MCP treats log items as first-order objects — drop the field.
+    events = [
+        {k: v for k, v in e.items() if k != "stack"} if isinstance(e, dict) else e
+        for e in events
+    ]
+
     truncated = bool(pagination and pagination.get("has_more"))
 
     # Coverage honesty: trust the server's `applied` echo, not our request.

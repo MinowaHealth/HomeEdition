@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 
 from mcp.types import Resource
 
-from tools._shape import as_dict, as_list
+from tools._shape import as_dict
 from tools._sources import fetch_sources
 
 
@@ -66,7 +66,7 @@ what each source means and what tables its data ends up in.
 
 ## manual
 Anything the user typed into the web or mobile UI. Lands in:
-- `health_inputs`, `stacks`, `timeframes`, `reminders`
+- `health_inputs`, `timeframes`, `reminders`
 - `health_input_log` (med/supplement logs)
 - `health_blood_pressure_readings`, `health_metrics`, `health_observations`
 - `health_conditions`, `health_allergies`, `health_family_history`,
