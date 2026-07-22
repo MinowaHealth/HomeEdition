@@ -1794,6 +1794,18 @@ components:
             Pulse at the time of the reading. Stored as `pulse` in the DB
             and read back as `pulse` on `GET /blood-pressure` — the write
             side calls it `heart_rate` for legacy reasons.
+        position:
+          type:
+            - string
+            - "null"
+          description: Body position during the reading (e.g. seated, supine).
+        device:
+          type:
+            - string
+            - "null"
+          description: |
+            Collection device. Omitted or blank stores NULL; the reading
+            reads back with source 'manual'.
 
     BloodPressureList:
       type: object

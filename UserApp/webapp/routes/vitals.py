@@ -171,7 +171,11 @@ def get_blood_pressure_sources():
 @bp.route('/blood-pressure', methods=['POST'])
 @require_auth
 def log_blood_pressure():
-    """Log a blood pressure reading"""
+    """Log a blood pressure reading.
+
+    Optional: position (e.g. seated, supine), device (collection device;
+    omitted/blank readings read back as source 'manual').
+    """
     data = request.json
     user_id = get_user_id()
     tenant_id = g.user.get('tenant_id', 1)
@@ -185,8 +189,9 @@ def log_blood_pressure():
     reading_id = uuid.uuid4()
     cur.execute("""
         INSERT INTO health_blood_pressure_readings
-        (tenant_id, id, user_id, measured_at, systolic, diastolic, pulse, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        (tenant_id, id, user_id, measured_at, systolic, diastolic, pulse,
+         position, device, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         tenant_id,
         reading_id,
@@ -195,6 +200,8 @@ def log_blood_pressure():
         int(data['systolic']),
         int(data['diastolic']),
         int(data['heart_rate']) if data.get('heart_rate') else None,
+        (data.get('position') or '').strip() or None,
+        (data.get('device') or '').strip() or None,
         now
     ))
 

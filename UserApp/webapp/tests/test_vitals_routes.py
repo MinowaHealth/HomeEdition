@@ -181,6 +181,46 @@ class TestLogBloodPressure:
         # Verify heart_rate/pulse arg is None when not provided
         call_args = cur.execute.call_args[0][1]
         assert call_args[6] is None  # pulse position in INSERT
+        assert call_args[7] is None  # position
+        assert call_args[8] is None  # device
+
+    def test_position_and_device_stored(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        payload = {
+            'timestamp': '2026-02-24T10:30:00',
+            'systolic': 120,
+            'diastolic': 80,
+            'position': 'supine',
+            'device': 'cuff meter',
+        }
+        resp = client.post(
+            '/api/v1/blood-pressure',
+            headers=auth_headers,
+            data=json.dumps(payload),
+        )
+        assert resp.status_code == 201
+        call_args = cur.execute.call_args[0][1]
+        assert call_args[7] == 'supine'
+        assert call_args[8] == 'cuff meter'
+
+    def test_blank_position_device_stored_as_null(self, client, mock_db, auth_headers):
+        conn, cur = mock_db
+        payload = {
+            'timestamp': '2026-02-24T10:30:00',
+            'systolic': 120,
+            'diastolic': 80,
+            'position': '  ',
+            'device': '',
+        }
+        resp = client.post(
+            '/api/v1/blood-pressure',
+            headers=auth_headers,
+            data=json.dumps(payload),
+        )
+        assert resp.status_code == 201
+        call_args = cur.execute.call_args[0][1]
+        assert call_args[7] is None
+        assert call_args[8] is None
 
 
 class TestDeleteBloodPressure:

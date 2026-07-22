@@ -777,11 +777,16 @@ want to filter `GET /api/v1/blood-pressure?sources=...`.
   "timestamp": "2026-02-24T08:00:00",
   "systolic": 120,
   "diastolic": 80,
-  "heart_rate": 72
+  "heart_rate": 72,
+  "position": "seated",
+  "device": "cuff meter"
 }
 ```
 
-Required: `timestamp`, `systolic`, `diastolic`
+Required: `timestamp`, `systolic`, `diastolic`. Optional: `heart_rate`,
+`position` (e.g. seated / standing / supine), `device` — the collection
+device; omitted or blank stores NULL and the reading reads back as source
+`manual`.
 
 **Response (201):** `{"message": "Blood pressure logged successfully"}`
 

@@ -3311,6 +3311,7 @@
             const [healthInputs, setHealthInputs] = useState([]);
             const [foodItems, setFoodItems] = useState([]);
             const [logHistory, setLogHistory] = useState([]);
+            const [bpDevices, setBpDevices] = useState([]);
             const [editing, setEditing] = useState(null);
             const [logType, setLogType] = useState('health-input');
             const [timestampTouched, setTimestampTouched] = useState(false);
@@ -3325,6 +3326,8 @@
                 systolic: '',
                 diastolic: '',
                 heart_rate: '',
+                bp_position: 'seated',
+                bp_device: '',
                 temperature: '',
                 weight: '',
                 blood_glucose: '',
@@ -3337,7 +3340,22 @@
                 fetchHealthInputs();
                 fetchFoodItems();
                 fetchLogHistory();
+                fetchBpDevices();
             }, []);
+
+            // Known BP collection devices (for the datalist) — every source
+            // except 'manual', which is what a blank device means.
+            const fetchBpDevices = async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/blood-pressure/sources`);
+                    const data = await response.json();
+                    setBpDevices((data.sources || [])
+                        .map(s => s.source)
+                        .filter(s => s && s !== 'manual'));
+                } catch (e) {
+                    console.log('bp sources fetch failed', e);
+                }
+            };
 
             const fetchMeals = async () => {
                 const pageSize = 200;
@@ -3472,6 +3490,8 @@
                             systolic: formData.systolic,
                             diastolic: formData.diastolic,
                             heart_rate: formData.heart_rate || null,
+                            position: formData.bp_position || null,
+                            device: formData.bp_device || null,
                             timestamp: submitTimestamp
                         };
                     } else if (logType === 'temperature') {
@@ -4051,28 +4071,50 @@
                                 })()}
                             </>
                         ) : logType === 'blood-pressure' ? (
-                            <div className="form-row">
-                                <input
-                                    type="number"
-                                    placeholder="Systolic (top number)"
-                                    value={formData.systolic || ''}
-                                    onChange={(e) => setFormData({ ...formData, systolic: e.target.value })}
-                                    required
-                                />
-                                <input
-                                    type="number"
-                                    placeholder="Diastolic (bottom number)"
-                                    value={formData.diastolic || ''}
-                                    onChange={(e) => setFormData({ ...formData, diastolic: e.target.value })}
-                                    required
-                                />
-                                <input
-                                    type="number"
-                                    placeholder="Heart Rate (optional)"
-                                    value={formData.heart_rate || ''}
-                                    onChange={(e) => setFormData({ ...formData, heart_rate: e.target.value })}
-                                />
-                            </div>
+                            <>
+                                <div className="form-row">
+                                    <input
+                                        type="number"
+                                        placeholder="Systolic (top number)"
+                                        value={formData.systolic || ''}
+                                        onChange={(e) => setFormData({ ...formData, systolic: e.target.value })}
+                                        required
+                                    />
+                                    <input
+                                        type="number"
+                                        placeholder="Diastolic (bottom number)"
+                                        value={formData.diastolic || ''}
+                                        onChange={(e) => setFormData({ ...formData, diastolic: e.target.value })}
+                                        required
+                                    />
+                                    <input
+                                        type="number"
+                                        placeholder="Heart Rate (optional)"
+                                        value={formData.heart_rate || ''}
+                                        onChange={(e) => setFormData({ ...formData, heart_rate: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-row">
+                                    <select
+                                        value={formData.bp_position || 'seated'}
+                                        onChange={(e) => setFormData({ ...formData, bp_position: e.target.value })}
+                                    >
+                                        <option value="seated">Seated</option>
+                                        <option value="standing">Standing</option>
+                                        <option value="supine">Supine (lying down)</option>
+                                    </select>
+                                    <input
+                                        type="text"
+                                        list="bp-device-options"
+                                        placeholder="Device (blank = manual entry)"
+                                        value={formData.bp_device || ''}
+                                        onChange={(e) => setFormData({ ...formData, bp_device: e.target.value })}
+                                    />
+                                    <datalist id="bp-device-options">
+                                        {bpDevices.map(d => <option key={d} value={d} />)}
+                                    </datalist>
+                                </div>
+                            </>
                         ) : logType === 'temperature' ? (
                             <div className="form-row">
                                 <input
