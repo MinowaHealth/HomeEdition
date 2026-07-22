@@ -1,7 +1,7 @@
 """
-get_vitals_timeline — BP, weight, temperature, and related metrics over a window.
+get_vitals_timeline — BP, weight, temperature, blood glucose over a window.
 
-Wraps /blood-pressure, /temperature, /weight. Returns raw rows for each
+Wraps /blood-pressure, /temperature, /weight, /blood-glucose. Returns raw rows for each
 category plus a per-category rollup (count/avg/min/max) so an LLM can
 answer "how's my BP trending" in one call without scanning every reading.
 """
@@ -27,8 +27,9 @@ def schema() -> Tool:
     return Tool(
         name="get_vitals_timeline",
         description=(
-            "Return blood pressure, weight, and temperature readings over a "
-            "window (default last 30 days, max 90). Each category includes raw "
+            "Return blood pressure, weight, temperature, and blood glucose "
+            "readings over a window (default last 30 days, max 90). Values come "
+            "back in the user's display unit preference. Each category includes raw "
             "rows and a rollup (count, min, max, avg) so trends are visible "
             "at a glance."
         ),
@@ -40,8 +41,8 @@ def schema() -> Tool:
                 "to": {"type": "string", "description": "YYYY-MM-DD"},
                 "include": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["bp", "weight", "temperature"]},
-                    "description": "Subset to fetch. Omit for all three.",
+                    "items": {"type": "string", "enum": ["bp", "weight", "temperature", "glucose"]},
+                    "description": "Subset to fetch. Omit for all four.",
                 },
             },
         },
@@ -72,8 +73,16 @@ async def _safe_call(client: Any, path: str, **kwargs) -> Any:
         return {"_error": str(exc)}
 
 
-def _rollup(rows: List[Dict[str, Any]], field: str) -> Dict[str, Any]:
-    values = [r.get(field) for r in rows if r.get(field) is not None]
+def _rollup(rows: List[Dict[str, Any]], *fields: str) -> Dict[str, Any]:
+    """Aggregate the first present field per row — the vitals API returns the
+    value under a named key ('weight', 'temperature', 'blood_glucose'); older
+    shapes used 'value'."""
+    def _pick(r: Dict[str, Any]) -> Any:
+        for f in fields:
+            if r.get(f) is not None:
+                return r[f]
+        return None
+    values = [_pick(r) for r in rows if _pick(r) is not None]
     values = [float(v) for v in values if isinstance(v, (int, float))]
     if not values:
         return {"count": 0}
@@ -100,7 +109,7 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
     start, end = _resolve_window(arguments)
     params = {"start_date": start.isoformat(), "end_date": end.isoformat()}
 
-    include = set(arguments.get("include") or ["bp", "weight", "temperature"])
+    include = set(arguments.get("include") or ["bp", "weight", "temperature", "glucose"])
 
     fetches = {}
     if "bp" in include:
@@ -109,6 +118,8 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
         fetches["weight"] = _safe_call(client, "/weight", method="GET", params=params)
     if "temperature" in include:
         fetches["temperature"] = _safe_call(client, "/temperature", method="GET", params=params)
+    if "glucose" in include:
+        fetches["glucose"] = _safe_call(client, "/blood-glucose", method="GET", params=params)
     fetches["sources"] = fetch_sources(client)
 
     results = await asyncio.gather(*fetches.values())
@@ -141,7 +152,7 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
         else:
             rows = _bp_rows(r)
             total_rows += len(rows)
-            data["weight"] = {"rows": rows, "rollup": _rollup(rows, "value")}
+            data["weight"] = {"rows": rows, "rollup": _rollup(rows, "weight", "value")}
 
     if "temperature" in include:
         r = by_key["temperature"]
@@ -151,7 +162,17 @@ async def handle(arguments: Dict[str, Any], client: Any) -> Dict[str, Any]:
         else:
             rows = _bp_rows(r)
             total_rows += len(rows)
-            data["temperature"] = {"rows": rows, "rollup": _rollup(rows, "value")}
+            data["temperature"] = {"rows": rows, "rollup": _rollup(rows, "temperature", "value")}
+
+    if "glucose" in include:
+        r = by_key["glucose"]
+        if isinstance(r, dict) and r.get("_error"):
+            gaps.append({"source": "blood_glucose", "reason": r["_error"]})
+            data["blood_glucose"] = {"rows": [], "rollup": {}}
+        else:
+            rows = _bp_rows(r)
+            total_rows += len(rows)
+            data["blood_glucose"] = {"rows": rows, "rollup": _rollup(rows, "blood_glucose", "value")}
 
     coverage = {
         "window": window_block(start, end),
